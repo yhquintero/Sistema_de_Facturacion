@@ -1,0 +1,22 @@
+services:
+  facturacion:
+    build: .
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATA_DIR: /app/data
+      APP_PASSWORD: ${APP_PASSWORD:?Define APP_PASSWORD en .env (minimo 12 caracteres)}
+      SEED_DEMO: ${SEED_DEMO:-false}
+      TRUST_PROXY: ${TRUST_PROXY:-0}
+    volumes:
+      - facturacion-data:/app/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+volumes:
+  facturacion-data:
