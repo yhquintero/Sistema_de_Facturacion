@@ -11,7 +11,9 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
     "test:e2e": "playwright test",
-    "backup": "node --env-file-if-exists=.env --import tsx scripts/backup.ts",
+    "backup": "node --env-file-if-exists=.env --import tsx scripts/backup.ts create",
+    "backup:verify": "node --env-file-if-exists=.env --import tsx scripts/backup.ts verify",
+    "backup:restore": "node --env-file-if-exists=.env --import tsx scripts/backup.ts restore",
     "user:reset-password": "node --env-file-if-exists=.env --import tsx scripts/reset-password.ts"
   },
   "dependencies": {
@@ -23,6 +25,7 @@
     "lucide-react": "^0.475.0",
     "pdfkit": "^0.16.0",
     "pngjs": "^7.0.0",
+    "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tsx": "^4.19.3",
@@ -35,6 +38,7 @@
     "@types/node": "^22.13.5",
     "@types/pdfkit": "^0.13.9",
     "@types/pngjs": "^6.0.5",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^4.3.4",

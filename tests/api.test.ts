@@ -13,10 +13,10 @@ let server: http.Server, origin: string, adminCookie = '';
 const password = randomBytes(24).toString('hex');
 before(async () => {
   server = http.createServer(createApp({ password, allowSetup: false })); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-  const login = await fetch(`${origin}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'admin', password }) }); assert.equal(login.status, 200); adminCookie = login.headers.get('set-cookie')!.split(';')[0];
+  const login = await fetch(`${origin}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Nexo-Request': '1' }, body: JSON.stringify({ username: 'admin', password }) }); assert.equal(login.status, 200); adminCookie = login.headers.get('set-cookie')!.split(';')[0];
 });
 after(async () => { await new Promise<void>(resolve => server.close(() => resolve())); db.close(); fs.rmSync(directory, { recursive: true, force: true }); });
-const request = (url: string, method = 'GET', body?: unknown, headers: Record<string, string> = {}) => fetch(`${origin}${url}`, { method, headers: { 'Content-Type': 'application/json', Cookie: adminCookie, ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
+const request = (url: string, method = 'GET', body?: unknown, headers: Record<string, string> = {}) => fetch(`${origin}${url}`, { method, headers: { 'Content-Type': 'application/json', 'X-Nexo-Request': '1', Cookie: adminCookie, ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
 
 test('health, standards, JSON 404 and same-origin write protection', async () => {
   const response = await request('/api/health'); assert.equal(response.status, 200); assert.equal((await response.json()).paperStandards.length, 10); assert.equal(response.headers.get('cache-control'), 'no-store');
@@ -54,14 +54,14 @@ test('APP_PASSWORD bootstraps an admin account; per-user sessions protect docume
   assert.equal((await fetch(`${origin}/api/health`)).status, 200);
   const session = await (await fetch(`${origin}/api/session`)).json(); assert.equal(session.protected, true); assert.equal(session.authenticated, false); assert.equal(session.user, null); assert.equal(session.setupAvailable, false);
   assert.equal((await fetch(`${origin}/api/invoices`)).status, 401); assert.equal((await fetch(`${origin}/api/invoices/inv-02/export/pdf`)).status, 401);
-  const post = (body: unknown) => fetch(`${origin}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const post = (body: unknown) => fetch(`${origin}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Nexo-Request': '1' }, body: JSON.stringify(body) });
   assert.equal((await post({ username: 'admin', password: 'incorrect' })).status, 401); assert.equal((await post({ username: 'nadie', password })).status, 401); assert.equal((await post({ password })).status, 401);
   assert.equal((await post({ username: 'admin', password: 'incorrect' })).headers.get('set-cookie'), null);
   const login = await post({ username: 'ADMIN', password }); assert.equal(login.status, 200); const cookie = login.headers.get('set-cookie')!; assert.match(cookie, /HttpOnly/); assert.match(cookie, /SameSite=Strict/);
   const info = await login.json(); assert.equal(info.user.username, 'admin'); assert.equal(info.user.role, 'admin'); assert.ok(info.permissions.includes('users.manage'));
   const headers = { Cookie: cookie.split(';')[0] }; assert.equal((await fetch(`${origin}/api/clients`, { headers })).status, 200);
-  assert.equal((await fetch(`${origin}/api/logout`, { method: 'POST', headers })).status, 200); assert.equal((await fetch(`${origin}/api/clients`, { headers })).status, 401);
-  assert.equal((await fetch(`${origin}/api/setup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'intruso', displayName: 'X', password: 'una-clave-muy-larga' }) })).status, 409);
+  assert.equal((await fetch(`${origin}/api/logout`, { method: 'POST', headers: { ...headers, 'X-Nexo-Request': '1' } })).status, 200); assert.equal((await fetch(`${origin}/api/clients`, { headers })).status, 401);
+  assert.equal((await fetch(`${origin}/api/setup`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Nexo-Request': '1' }, body: JSON.stringify({ username: 'intruso', displayName: 'X', password: 'una-clave-muy-larga' }) })).status, 409);
 });
 test('revenue goals are validated per currency, rounded, persisted and cleared when zero', async () => {
   assert.deepEqual(await (await request('/api/goals')).json(), {});

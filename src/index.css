@@ -276,3 +276,76 @@ mark{background:#fde68a;color:#3b2f06;border-radius:3px;padding:0 1px}
 @media print{.print-only{display:block}.print-header{display:flex;justify-content:space-between;border-bottom:2px solid #2d6a57;padding-bottom:8px;margin-bottom:16px;font-size:11px}.print-header strong{font-size:15px}.kpi-grid{grid-template-columns:repeat(4,1fr)}.analytics-grid{grid-template-columns:1fr 1fr}.panel,.kpi-card{break-inside:avoid;box-shadow:none}.chart-table:not([open]){display:none}}
 .sp-head{font-size:11px;color:#4f6457}.sp-icon{color:#2d6a57}
 @media (max-width:640px){.topbar-tool.hide-mobile{display:none}.trend-chart .chart-label{font-size:22px}.trend-goal text{font-size:20px}}
+/* ---------- Seguridad: verificación en dos pasos, sesiones, inactividad y copias ---------- */
+.login-card-wide{max-width:520px}
+.login-alert{margin:0 0 16px}
+.otp-input{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:20px!important;letter-spacing:6px;text-align:center}
+.muted-copy{font-size:11px;color:#7f8c83;line-height:1.7;margin-bottom:12px}
+.danger-text{color:#b54e4e}
+.danger-text:hover{background:#fceeee}
+.account-tabs{margin:4px 0 18px;width:100%;flex-wrap:wrap}
+.account-tabs .filter-tab{flex:1;justify-content:center}
+.tab-ok{color:#2d6a57}
+.account-section{min-height:180px}
+.twofa-summary{display:grid;gap:14px}
+.twofa-state{display:flex;gap:12px;align-items:flex-start;border:1px solid #e3e9e4;border-radius:12px;padding:15px 16px;background:#fafcfa}
+.twofa-state.on{border-color:#cfe3d6;background:#f1f8f3;color:#2d6a57}
+.twofa-state.off{color:#a07a3c;background:#fdf9f1;border-color:#efe3c9}
+.twofa-state strong{display:block;font-size:12px;color:#26372b;margin-bottom:3px}
+.twofa-state span{font-size:11px;color:#6f7d73;line-height:1.6}
+.twofa-buttons{display:flex;gap:10px;flex-wrap:wrap}
+.twofa-setup{display:grid;gap:14px}
+.twofa-steps{list-style:none;padding:0;margin:0;display:grid;gap:8px}
+.twofa-steps li{display:flex;gap:9px;align-items:flex-start;font-size:11px;color:#5f6e64;line-height:1.6}
+.twofa-steps svg{flex:0 0 auto;margin-top:3px;color:#2d6a57}
+.twofa-qr-row{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.twofa-qr{width:168px;height:168px;padding:8px;background:#fff;border:1px solid #e0e8e0;border-radius:12px;flex:0 0 auto}
+.twofa-qr svg{width:100%;height:100%;display:block}
+.twofa-secret{display:grid;gap:6px;min-width:0;flex:1}
+.twofa-secret span{font-size:10px;font-weight:650;letter-spacing:1px;text-transform:uppercase;color:#8b958f}
+.twofa-secret code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;background:#f4f7f5;border:1px solid #e3e9e4;border-radius:8px;padding:9px 11px;word-break:break-all;user-select:all;color:#26372b}
+.twofa-secret small{font-size:10px;color:#8b958f}
+.recovery-box{display:grid;gap:14px}
+.recovery-codes{list-style:none;margin:0;padding:14px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 18px;background:#f4f7f5;border:1px dashed #cfdcd2;border-radius:12px;counter-reset:code}
+.recovery-codes li{counter-increment:code;display:flex;gap:8px;align-items:baseline;font-size:10px;color:#93a096}
+.recovery-codes li:before{content:counter(code,decimal-leading-zero)}
+.recovery-codes code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;color:#26372b;letter-spacing:.5px}
+.recovery-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.twofa-badge{display:inline-flex;align-items:center;gap:3px;margin-left:6px;padding:1px 6px;border-radius:5px;font-size:9px;font-weight:650;color:#2d6a57;background:#eaf4ee;border:1px solid #d3e6da;vertical-align:middle}
+.twofa-admin{border:1px solid #e3e9e4;border-radius:10px;padding:13px 14px;display:grid;gap:10px;background:#fafcfa}
+.twofa-admin p{display:flex;gap:8px;font-size:11px;color:#5f6e64;line-height:1.6}
+.twofa-admin p svg{flex:0 0 auto;margin-top:3px;color:#2d6a57}
+.twofa-admin>button{justify-self:start}
+.twofa-admin-confirm{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:11px;color:#8a4a4a}
+.twofa-admin-confirm span{flex:1;min-width:180px}
+.own-sessions{display:grid;gap:12px}
+.own-sessions ul{list-style:none;margin:0;padding:0;border:1px solid #e3e9e4;border-radius:12px;overflow:hidden}
+.own-sessions li{display:flex;gap:12px;align-items:center;padding:12px 14px;border-top:1px solid #edf1ee;color:#7f9184}
+.own-sessions li:first-child{border-top:0}
+.own-sessions li.current{background:#f1f8f3;color:#2d6a57}
+.own-sessions li>div{flex:1;min-width:0}
+.own-sessions strong{display:flex;gap:8px;align-items:center;font-size:12px;color:#26372b;flex-wrap:wrap}
+.own-sessions li span{font-size:10px;color:#7f8c83}
+.own-sessions .session-current{font-size:9px;font-weight:650;color:#2d6a57;background:#dff0e5;border-radius:5px;padding:1px 6px}
+.own-sessions>.btn{justify-self:start}
+.sessions-loading{display:flex;gap:8px;align-items:center;font-size:11px;color:#7f8c83;padding:12px 0}
+.idle-backdrop{z-index:120}
+.idle-modal{max-width:400px;padding:28px;text-align:center;display:grid;justify-items:center;gap:10px}
+.idle-modal h2{font-size:19px;font-weight:650;letter-spacing:-.4px}
+.idle-modal p{font-size:12px;color:#6f7d73;line-height:1.7}
+.idle-modal .modal-actions{justify-content:center;width:100%}
+.idle-count{font-variant-numeric:tabular-nums;color:#b54e4e;white-space:nowrap}
+.auth-notice{position:fixed;left:50%;transform:translateX(-50%);top:16px;z-index:110;display:flex;gap:10px;align-items:center;max-width:min(560px,calc(100vw - 32px));padding:10px 10px 10px 14px;border-radius:10px;background:#fdf9f1;border:1px solid #efe3c9;color:#7a5a24;font-size:11px;box-shadow:0 8px 30px #1e3c2714}
+.auth-notice span{flex:1}
+.backups-panel{margin-top:18px}
+.backup-facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:0 22px 16px}
+.backup-fact{display:flex;gap:10px;align-items:flex-start;border:1px solid #e3e9e4;border-radius:10px;padding:12px 13px;color:#8b958f}
+.backup-fact.ok{color:#2d6a57;background:#f6faf7}
+.backup-fact.warn,.backup-fact.stale,.backup-fact.none{color:#a07a3c;background:#fdf9f1;border-color:#efe3c9}
+.backup-fact strong{display:block;font-size:11px;color:#26372b}
+.backup-fact span{font-size:10px;color:#7f8c83}
+.backup-name{font-size:10px;word-break:break-all}
+.users-stat strong small{font-size:11px;color:#93a096;font-weight:550;letter-spacing:0}
+@media (max-width:767px){.backup-facts{grid-template-columns:1fr;padding:0 18px 14px}.recovery-codes{grid-template-columns:1fr}.twofa-qr{width:150px;height:150px}.account-tabs .filter-tab{flex:1 1 100%}}
+/* La barra lateral puede ser más alta que la ventana (p. ej. portátiles de 768–900 px): debe desplazarse para llegar a «Mi cuenta». */
+.sidebar{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}

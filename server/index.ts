@@ -4,13 +4,18 @@ import fs from 'node:fs';
 import express from 'express';
 import { createApp } from './app';
 import { db } from './db';
-import { hasUsers } from './users';
+import { hasUsers, recordSecurityEvent } from './users';
+import { scheduleDailyBackups } from './backups';
 
 async function bootstrap() {
   const isProd = process.env.NODE_ENV === 'production' || process.argv.includes('--production');
   if (isProd) process.env.NODE_ENV = 'production';
   if (isProd && !process.env.APP_PASSWORD && !hasUsers() && process.env.ALLOW_PUBLIC_DEMO !== 'true') throw new Error('Configura APP_PASSWORD (mínimo 12 caracteres) para crear el primer administrador antes de iniciar producción. Usa ALLOW_PUBLIC_DEMO=true únicamente para una demostración pública sin datos reales.');
-  const app = createApp(); const httpServer = http.createServer(app);
+  const scheduledBackups = isProd && process.env.BACKUP_AUTO !== 'false';
+  if (process.env.BACKUP_KEY && process.env.BACKUP_KEY.length < 16) throw new Error('BACKUP_KEY debe tener al menos 16 caracteres.');
+  const app = createApp({ securityHeaders: isProd, scheduledBackups }); const httpServer = http.createServer(app);
+  const stopBackups = scheduledBackups ? scheduleDailyBackups(db, info => recordSecurityEvent('backup_created', { id: '', name: 'Copia automática' }, { name: info.name }, { encrypted: info.encrypted, size: info.size, removed: info.removed.length, automatic: true })) : undefined;
+  if (scheduledBackups && !process.env.BACKUP_KEY) console.warn('[Nexo] Aviso: BACKUP_KEY no está configurada. Las copias automáticas se guardarán SIN cifrar.');
   let closeVite: (() => Promise<void>) | undefined;
   if (!isProd) {
     const { createServer } = await import('vite');
@@ -25,7 +30,7 @@ async function bootstrap() {
   }
   const port = Number(process.env.PORT || 3000);
   httpServer.listen(port, '0.0.0.0', () => console.log(`[Nexo Facturación] Web + API + Móvil disponibles en http://0.0.0.0:${port}${hasUsers() ? ' · Acceso con cuentas de usuario' : ' · Modo abierto sin cuentas'}`));
-  const shutdown = () => { httpServer.close(() => { db.close(); process.exit(0); }); void closeVite?.(); httpServer.closeIdleConnections(); };
+  const shutdown = () => { stopBackups?.(); httpServer.close(() => { db.close(); process.exit(0); }); void closeVite?.(); httpServer.closeIdleConnections(); };
   process.once('SIGTERM', shutdown); process.once('SIGINT', shutdown);
 }
 bootstrap().catch(error => { console.error('No se pudo iniciar el servidor:', (error as Error).message); process.exit(1); });

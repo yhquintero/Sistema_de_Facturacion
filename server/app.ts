@@ -8,8 +8,14 @@ import { sanitizeFilename } from './exporters/formatHelpers';
 
 import { actorStore } from './actor';
 import { PERMISSIONS, PERMISSION_LABELS, ROLE_INFO, ROLE_PERMISSIONS, type Permission, type SessionInfo } from '../shared/permissions';
-import { bootstrapAdminFromPassword, changeOwnPassword, createFirstAdmin, createSession, createUser, deleteSession, findUserForLogin, getDecoyHash, hasUsers, listSecurityEvents, listUsers, recordSecurityEvent, resolveSession, revokeUserSessions, SESSION_TTL_MS, toSessionUser, updateUser, verifyPassword, type ActorRef } from './users';
-import type { WorkspaceUser } from '../shared/permissions';
+import { bootstrapAdminFromPassword, changeOwnPassword, clearLoginFailures, createFirstAdmin, createSession, createUser, deleteSession, disableTwoFactor, enableTwoFactor, failureKey, findUserForLogin, getDecoyHash, getUser, hasUsers, listOwnSessions, listSecurityEvents, listUsers, loginLockRemainingMs, recordSecurityEvent, regenerateRecoveryCodes, registerLoginFailure, resolveSession, revokeOwnSessions, revokeUserSessions, sessionIdleMs, sessionMaxMs, startTwoFactorSetup, toSessionUser, updateUser, verifyPassword, verifySecondFactor, type ActorRef } from './users';
+import { backupStatus, createBackup, isBackupName, listBackups } from './backups';
+import { backupDirectory } from './paths';
+import { db } from './db';
+import QRCode from 'qrcode';
+import path from 'node:path';
+import { randomBytes } from 'node:crypto';
+import type { TwoFactorChallenge, WorkspaceUser } from '../shared/permissions';
 
 class HttpError extends Error { constructor(public status: number, message: string, public code = '') { super(message); } }
 type Auth = { open: boolean; user: WorkspaceUser | null; tokenHash: string; permissions: Permission[] };
@@ -25,8 +31,21 @@ const cookieToken = (req: Request) => req.headers.cookie?.split(';').map(s => s.
 const actorRef = (req: Request, res: Response): ActorRef => { const user = auth(res).user; return { id: user?.id || '', name: user ? user.displayName : 'Modo abierto', ip: req.ip || '' }; };
 /** En modo abierto (sin cuentas) se permite todo salvo la gestión de usuarios, que exige el asistente de configuración. */
 const OPEN_MODE_PERMISSIONS = PERMISSIONS.filter(p => p !== 'users.manage');
+/** Cabecera propia exigida en toda modificación: un formulario o enlace de otro sitio no puede enviarla (anti-CSRF). */
+export const CSRF_HEADER = 'x-nexo-request';
+const minutes = (ms: number) => Math.max(1, Math.ceil(ms / 60_000));
 
-export function createApp(options: { password?: string; allowSetup?: boolean; adminUsername?: string } = {}) {
+export type AppOptions = {
+  password?: string; allowSetup?: boolean; adminUsername?: string;
+  /** CSP, X-Frame-Options, COOP/CORP. Por defecto solo en producción (Vite usa scripts en línea en desarrollo). */
+  securityHeaders?: boolean;
+  /** Exige verificación en dos pasos a los administradores (REQUIRE_ADMIN_2FA=true). */
+  requireAdminTwoFactor?: boolean;
+  /** Copias automáticas programadas activas (solo informativo para el panel). */
+  scheduledBackups?: boolean;
+};
+
+export function createApp(options: AppOptions = {}) {
   const app = express(); const password = options.password ?? process.env.APP_PASSWORD ?? '';
   if (password && password.length < 12) throw new Error('APP_PASSWORD debe tener al menos 12 caracteres.');
   const allowSetup = options.allowSetup ?? process.env.NODE_ENV !== 'production';
@@ -34,24 +53,48 @@ export function createApp(options: { password?: string; allowSetup?: boolean; ad
   bootstrapAdminFromPassword(password, options.adminUsername ?? process.env.ADMIN_USERNAME ?? 'admin');
   app.disable('x-powered-by');
   app.set('trust proxy', process.env.TRUST_PROXY === '1' ? 1 : false);
-  app.use((_req, res, next) => { res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'same-origin'); next(); });
+  const strictHeaders = options.securityHeaders ?? process.env.NODE_ENV === 'production';
+  const requireAdminTwoFactor = options.requireAdminTwoFactor ?? process.env.REQUIRE_ADMIN_2FA === 'true';
+  // Las palabras clave de CSP van entre comillas simples; .env y Docker suelen quitarlas, así que se normalizan.
+  const frameAncestors = (process.env.FRAME_ANCESTORS || 'self').replace(/[;,\r\n]/g, ' ').split(/\s+/).filter(Boolean)
+    .map(token => /^'?(self|none)'?$/i.test(token) ? `'${token.replace(/'/g, '').toLowerCase()}'` : token).join(' ') || "'self'";
+  const contentSecurityPolicy = ["default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'", "img-src 'self' data: blob:", "font-src 'self' data:", "connect-src 'self'", "frame-src 'self' blob:", "worker-src 'self'", "manifest-src 'self'", "object-src 'none'", "base-uri 'self'", "form-action 'self'", `frame-ancestors ${frameAncestors}`].join('; ');
+  app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'same-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()');
+    if (strictHeaders) {
+      res.setHeader('Content-Security-Policy', contentSecurityPolicy);
+      if (frameAncestors === "'self'" || frameAncestors === "'none'") res.setHeader('X-Frame-Options', frameAncestors === "'none'" ? 'DENY' : 'SAMEORIGIN');
+      res.setHeader('Cross-Origin-Opener-Policy', 'same-origin'); res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    }
+    if (req.secure) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    next();
+  });
   app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
   app.use(express.json({ limit: '4mb' }));
   app.use('/api', (req, res, next) => {
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin) {
-      try { if (new URL(req.headers.origin).host !== req.get('host')) { res.status(403).json({ error: 'Origen de solicitud no autorizado.' }); return; } } catch { res.status(403).json({ error: 'Origen no válido.' }); return; }
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+      if (req.headers.origin) {
+        try { if (new URL(req.headers.origin).host !== req.get('host')) { res.status(403).json({ error: 'Origen de solicitud no autorizado.' }); return; } } catch { res.status(403).json({ error: 'Origen no válido.' }); return; }
+      }
+      if (req.get(CSRF_HEADER) !== '1') { res.status(403).json({ error: 'Solicitud rechazada por seguridad. Recarga la página e inténtalo de nuevo.', code: 'CSRF_HEADER_MISSING' }); return; }
     }
     next();
   });
   // Resuelve la sesión en cada solicitud: el rol y el estado de la cuenta se leen siempre de la base.
   app.use('/api', (req, res, next) => {
     if (!hasUsers()) { res.locals.auth = { open: true, user: null, tokenHash: '', permissions: OPEN_MODE_PERMISSIONS } satisfies Auth; next(); return; }
-    const session = resolveSession(cookieToken(req));
+    // GET /api/session?probe=1 consulta el estado sin contar como actividad (aviso de inactividad entre pestañas).
+    const resolved = resolveSession(cookieToken(req), { touch: !(req.method === 'GET' && req.path === '/session' && req.query.probe === '1') });
+    if (resolved && 'lastSeenAt' in resolved) res.locals.lastSeenAt = resolved.lastSeenAt;
+    const session = resolved && 'tokenHash' in resolved ? resolved : null;
+    if (resolved && 'expired' in resolved) res.locals.sessionExpired = resolved.expired;
     res.locals.auth = { open: false, user: session?.user ?? null, tokenHash: session?.tokenHash ?? '', permissions: session ? [...ROLE_PERMISSIONS[session.user.role]] : [] } satisfies Auth;
     next();
   });
-  const sessionInfo = (res: Response): SessionInfo => { const a = auth(res); return { protected: !a.open, authenticated: a.open || !!a.user, ...getWorkspaceInfo(), user: a.user ? toSessionUser(a.user) : null, permissions: a.permissions, setupAvailable: a.open && allowSetup }; };
-  const setSessionCookie = (req: Request, res: Response, token: string) => res.cookie(SESSION_COOKIE, token, { httpOnly: true, sameSite: 'strict', secure: req.secure, maxAge: SESSION_TTL_MS, path: '/' });
+  const twoFactorSetupRequired = (user: WorkspaceUser | null) => !!user && requireAdminTwoFactor && user.role === 'admin' && !user.twoFactorEnabled;
+  const sessionInfo = (res: Response): SessionInfo => { const a = auth(res); return { protected: !a.open, authenticated: a.open || !!a.user, ...getWorkspaceInfo(), user: a.user ? toSessionUser(a.user) : null, permissions: a.permissions, setupAvailable: a.open && allowSetup, idleMinutes: a.user ? Math.round(sessionIdleMs() / 60_000) : 0, ...(a.user && sessionIdleMs() ? { idleRemainingSeconds: Math.max(0, Math.floor(((res.locals.lastSeenAt as number | undefined ?? Date.now()) + sessionIdleMs() - Date.now()) / 1000)) } : {}), twoFactorSetupRequired: twoFactorSetupRequired(a.user) }; };
+  const setSessionCookie = (req: Request, res: Response, token: string) => res.cookie(SESSION_COOKIE, token, { httpOnly: true, sameSite: 'strict', secure: req.secure, maxAge: sessionMaxMs(), path: '/' });
   const startSession = (req: Request, res: Response, user: WorkspaceUser) => { const { token, tokenHash } = createSession(user.id, { ip: req.ip, userAgent: req.get('user-agent') }); setSessionCookie(req, res, token); res.locals.auth = { open: false, user, tokenHash, permissions: [...ROLE_PERMISSIONS[user.role]] } satisfies Auth; };
   const attempts = new Map<string, { count: number; reset: number }>();
   const throttle = (req: Request) => {
@@ -59,24 +102,65 @@ export function createApp(options: { password?: string; allowSetup?: boolean; ad
     for (const [ip, attempt] of attempts) if (attempt.reset < now) attempts.delete(ip);
     if (attempts.size > 5000) throw new HttpError(429, 'Demasiadas solicitudes. Inténtalo más tarde.');
     const attempt = attempts.get(key) || { count: 0, reset: now + 15 * 60_000 };
-    if (attempt.count >= 10) throw new HttpError(429, 'Demasiados intentos. Espera 15 minutos antes de volver a intentar.');
+    if (attempt.count >= 30) throw new HttpError(429, 'Demasiados intentos desde esta conexión. Espera 15 minutos antes de volver a intentar.');
     return { fail: () => { attempt.count++; attempts.set(key, attempt); }, clear: () => attempts.delete(key) };
   };
 
   app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'Nexo · Sistema de Facturación (Web, Servidor, Móvil)', timestamp: new Date().toISOString(), supportedFormats: ['pdf', 'docx', 'xlsx'], paperStandards: PAPER_STANDARDS_LIST.map(p => p.id) }));
-  app.get('/api/session', (_req, res) => res.json(sessionInfo(res)));
-  app.post('/api/login', respondAsync(async (req, res) => {
+  app.get('/api/session', (_req, res) => res.json({ ...sessionInfo(res), ...(res.locals.sessionExpired ? { expiredReason: res.locals.sessionExpired } : {}) }));
+
+  /* Bloqueo por usuario+IP: LOGIN_MAX_ATTEMPTS fallos (contraseña o código) bloquean LOGIN_LOCK_MINUTES. */
+  const assertNotLocked = (key: string) => { const remaining = loginLockRemainingMs(key); if (remaining) throw new HttpError(429, `Acceso bloqueado temporalmente por intentos fallidos. Espera ${minutes(remaining)} min antes de volver a intentar.`, 'LOGIN_LOCKED'); };
+  const failLogin = (req: Request, key: string, status: number, message: string, target: { id?: string; name: string }): never => {
+    const { remaining, lockedMs } = registerLoginFailure(key);
+    if (lockedMs) { recordSecurityEvent('login_locked', { id: '', name: '', ip: req.ip }, target, { minutes: minutes(lockedMs) }); throw new HttpError(429, `Demasiados intentos fallidos. El acceso queda bloqueado ${minutes(lockedMs)} minutos.`, 'LOGIN_LOCKED'); }
+    throw new HttpError(status, `${message} ${remaining === 1 ? 'Te queda 1 intento' : `Te quedan ${remaining} intentos`} antes del bloqueo temporal.`);
+  };
+  /* Segundo paso pendiente: reto efímero en memoria (5 minutos, 5 intentos), nunca en la cookie. */
+  const challenges = new Map<string, { userId: string; key: string; expires: number; attempts: number }>();
+  const createChallenge = (userId: string, key: string) => {
+    const now = Date.now(); for (const [id, c] of challenges) if (c.expires < now) challenges.delete(id);
+    if (challenges.size > 5000) throw new HttpError(429, 'Demasiadas solicitudes. Inténtalo más tarde.');
+    const id = randomBytes(24).toString('base64url'); challenges.set(id, { userId, key, expires: now + 5 * 60_000, attempts: 0 }); return id;
+  };
+  const completeLogin = (req: Request, res: Response, user: WorkspaceUser, key: string, method: string) => {
+    clearLoginFailures(key); startSession(req, res, user);
+    recordSecurityEvent('login_succeeded', { id: user.id, name: user.displayName, ip: req.ip }, { id: user.id, name: user.username }, method === 'password' ? {} : { secondFactor: method });
+    return sessionInfo(res);
+  };
+  app.post('/api/login', respondAsync(async (req, res): Promise<SessionInfo | TwoFactorChallenge> => {
     if (auth(res).open) return sessionInfo(res);
     const limiter = throttle(req);
     const username = typeof req.body?.username === 'string' ? req.body.username.trim().slice(0, 80) : '';
     const candidate = typeof req.body?.password === 'string' ? req.body.password : '';
+    const key = failureKey(username, req.ip || '');
+    assertNotLocked(key);
     const user = username && candidate.length <= 1024 ? findUserForLogin(username) : undefined;
     const valid = user ? await verifyPassword(candidate, user.passwordHash) : (await verifyPassword(candidate.slice(0, 1024), await getDecoyHash()), false);
-    if (!user || !valid) { limiter.fail(); recordSecurityEvent('login_failed', { id: '', name: '', ip: req.ip }, { id: user?.id, name: username.toLowerCase().slice(0, 40) }, { reason: user ? 'password' : 'unknown_user' }); throw new HttpError(401, 'Usuario o contraseña incorrectos.'); }
+    if (!user || !valid) { limiter.fail(); recordSecurityEvent('login_failed', { id: '', name: '', ip: req.ip }, { id: user?.id, name: username.toLowerCase().slice(0, 40) }, { reason: user ? 'password' : 'unknown_user' }); return failLogin(req, key, 401, 'Usuario o contraseña incorrectos.', { id: user?.id, name: username.toLowerCase().slice(0, 40) }); }
     if (!user.active) { limiter.fail(); recordSecurityEvent('login_failed', { id: '', name: '', ip: req.ip }, { id: user.id, name: user.username }, { reason: 'inactive' }); throw new HttpError(403, 'Tu cuenta está desactivada. Contacta con un administrador del espacio.'); }
-    limiter.clear(); startSession(req, res, user);
-    recordSecurityEvent('login_succeeded', { id: user.id, name: user.displayName, ip: req.ip }, { id: user.id, name: user.username });
-    return sessionInfo(res);
+    limiter.clear();
+    if (user.twoFactorEnabled) return { twoFactorRequired: true, challenge: createChallenge(user.id, key), displayName: user.displayName };
+    return completeLogin(req, res, user, key, 'password');
+  }));
+  app.post('/api/login/2fa', respondAsync(async (req, res) => {
+    const limiter = throttle(req);
+    const id = typeof req.body?.challenge === 'string' ? req.body.challenge : '';
+    const challenge = challenges.get(id);
+    if (!challenge || challenge.expires < Date.now()) { challenges.delete(id); throw new HttpError(401, 'La verificación caducó. Vuelve a introducir tu usuario y contraseña.', 'CHALLENGE_EXPIRED'); }
+    assertNotLocked(challenge.key);
+    const user = getUser(challenge.userId);
+    if (!user || !user.active) { challenges.delete(id); throw new HttpError(401, 'La verificación caducó. Vuelve a introducir tu usuario y contraseña.', 'CHALLENGE_EXPIRED'); }
+    const result = verifySecondFactor(user.id, req.body?.code);
+    if (!result.ok) {
+      limiter.fail();
+      recordSecurityEvent('two_factor_failed', { id: '', name: '', ip: req.ip }, { id: user.id, name: user.username }, { stage: 'login' });
+      if (++challenge.attempts >= 5) challenges.delete(id);
+      return failLogin(req, challenge.key, 401, 'El código no es correcto.', { id: user.id, name: user.username });
+    }
+    challenges.delete(id);
+    if (result.method === 'recovery') recordSecurityEvent('recovery_code_used', { id: user.id, name: user.displayName, ip: req.ip }, { id: user.id, name: user.username }, { remaining: result.recoveryCodesLeft });
+    return { ...completeLogin(req, res, getUser(user.id)!, challenge.key, result.method), ...(result.method === 'recovery' ? { recoveryCodesLeft: result.recoveryCodesLeft } : {}) };
   }));
   app.post('/api/logout', (req, res) => {
     const user = auth(res).user; deleteSession(cookieToken(req));
@@ -91,7 +175,14 @@ export function createApp(options: { password?: string; allowSetup?: boolean; ad
     startSession(req, res, user);
     return sessionInfo(res);
   }, 201));
-  app.use('/api', (_req, res, next) => { if (!auth(res).open && !auth(res).user) { res.status(401).json({ error: 'Inicia sesión para acceder a tu espacio de trabajo.' }); return; } next(); });
+  app.use('/api', (_req, res, next) => {
+    if (!auth(res).open && !auth(res).user) {
+      const expired = res.locals.sessionExpired as string | undefined;
+      res.status(401).json(expired === 'idle' ? { error: 'Tu sesión se cerró por inactividad. Vuelve a iniciar sesión.', code: 'SESSION_IDLE' } : { error: 'Inicia sesión para acceder a tu espacio de trabajo.', code: expired ? 'SESSION_EXPIRED' : 'UNAUTHENTICATED' });
+      return;
+    }
+    next();
+  });
   app.put('/api/me/password', respondAsync(async (req, res) => {
     const { user, tokenHash } = auth(res); if (!user) throw new HttpError(400, 'Activa el control de acceso para gestionar contraseñas.');
     const updated = await changeOwnPassword(user.id, req.body, tokenHash, actorRef(req, res));
@@ -99,6 +190,30 @@ export function createApp(options: { password?: string; allowSetup?: boolean; ad
     return sessionInfo(res);
   }));
   app.use('/api', (_req, res, next) => { if (auth(res).user?.mustChangePassword) { res.status(403).json({ error: 'Debes cambiar tu contraseña temporal antes de continuar.', code: 'PASSWORD_CHANGE_REQUIRED' }); return; } next(); });
+
+  /* Verificación en dos pasos y sesiones de la propia cuenta (permitidas aunque la política exija activar 2FA). */
+  const me = (res: Response) => { const { user } = auth(res); if (!user) throw new HttpError(400, 'Activa el control de acceso para usar la verificación en dos pasos.'); return user; };
+  app.post('/api/me/2fa/setup', respondAsync(async (_req, res) => {
+    const { secret, otpauthUri } = startTwoFactorSetup(me(res).id);
+    const qrSvg = await QRCode.toString(otpauthUri, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#1d3b30', light: '#ffffff' } });
+    return { secret, otpauthUri, qrSvg };
+  }));
+  app.post('/api/me/2fa/enable', respond((req, res) => {
+    const { codes, user } = enableTwoFactor(me(res).id, req.body?.code, actorRef(req, res));
+    res.locals.auth = { ...auth(res), user } satisfies Auth;
+    return { recoveryCodes: codes, session: sessionInfo(res) };
+  }));
+  app.post('/api/me/2fa/disable', respondAsync(async (req, res) => {
+    if (requireAdminTwoFactor && me(res).role === 'admin') throw new HttpError(403, 'La política del espacio exige la verificación en dos pasos a los administradores.');
+    const user = await disableTwoFactor(me(res).id, req.body ?? {}, actorRef(req, res));
+    res.locals.auth = { ...auth(res), user } satisfies Auth;
+    return sessionInfo(res);
+  }));
+  app.post('/api/me/2fa/recovery-codes', respond((req, res) => ({ recoveryCodes: regenerateRecoveryCodes(me(res).id, req.body?.code, actorRef(req, res)) })));
+  app.get('/api/me/security', respond((_req, res) => { const user = getUser(me(res).id)!; return { twoFactorEnabled: user.twoFactorEnabled, recoveryCodesLeft: user.recoveryCodesLeft, passwordChangedAt: user.passwordChangedAt, idleMinutes: Math.round(sessionIdleMs() / 60_000), maxHours: Math.round(sessionMaxMs() / 3_600_000), requireAdminTwoFactor }; }));
+  app.get('/api/me/sessions', respond((_req, res) => listOwnSessions(me(res).id, auth(res).tokenHash)));
+  app.delete('/api/me/sessions/:id', respond((req, res) => ({ ok: true, revoked: revokeOwnSessions(me(res).id, req.params.id, auth(res).tokenHash, actorRef(req, res)) })));
+  app.use('/api', (_req, res, next) => { if (twoFactorSetupRequired(auth(res).user)) { res.status(403).json({ error: 'La política del espacio exige que los administradores activen la verificación en dos pasos antes de continuar.', code: 'TWO_FACTOR_SETUP_REQUIRED' }); return; } next(); });
   app.use('/api', (req, res, next) => { const ref = actorRef(req, res); actorStore.run({ id: ref.id, name: ref.name }, next); });
 
   app.get('/api/users', requirePermission('users.manage'), respond(() => listUsers()));
@@ -110,6 +225,19 @@ export function createApp(options: { password?: string; allowSetup?: boolean; ad
     return { ok: true, revoked };
   }));
   app.get('/api/security-events', requirePermission('users.manage'), respond(req => listSecurityEvents(Number(req.query.limit) || 100)));
+  const scheduledBackups = options.scheduledBackups ?? false;
+  app.get('/api/backups', requirePermission('users.manage'), respond(() => backupStatus(scheduledBackups)));
+  app.post('/api/backups', requirePermission('users.manage'), respond((req, res) => {
+    const info = createBackup(db);
+    recordSecurityEvent('backup_created', actorRef(req, res), { name: info.name }, { encrypted: info.encrypted, size: info.size, removed: info.removed.length });
+    return backupStatus(scheduledBackups);
+  }, 201));
+  app.get('/api/backups/:name', requirePermission('users.manage'), (req, res, next) => {
+    const name = req.params.name;
+    if (!isBackupName(name) || !listBackups().some(b => b.name === name)) { res.status(404).json({ error: 'Copia no encontrada.' }); return; }
+    recordSecurityEvent('backup_downloaded', actorRef(req, res), { name }, {});
+    res.download(path.join(backupDirectory(), name), name, { dotfiles: 'deny', headers: { 'Content-Type': 'application/octet-stream' } }, error => { if (error && !res.headersSent) next(error); });
+  });
 
   app.get('/api/paper-standards', respond(() => PAPER_STANDARDS_LIST));
   app.get('/api/dashboard', respond(() => ({ stats: getDashboardStats(), recentInvoices: listInvoices().slice(0, 6) })));

@@ -14,7 +14,7 @@ after(async () => { await new Promise<void>(resolve => server.close(() => resolv
 
 type Call = { status: number; body: any; cookie: string };
 async function call(url: string, method = 'GET', body?: unknown, cookie = ''): Promise<Call> {
-  const response = await fetch(`${origin}${url}`, { method, headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const response = await fetch(`${origin}${url}`, { method, headers: { 'Content-Type': 'application/json', 'X-Nexo-Request': '1', ...(cookie ? { Cookie: cookie } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
   const text = await response.text(); let parsed: any = text; try { parsed = JSON.parse(text); } catch { /* binary */ }
   return { status: response.status, body: parsed, cookie: response.headers.get('set-cookie')?.split(';')[0] || '' };
 }

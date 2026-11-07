@@ -1,7 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-import { ArrowRight, KeyRound, LoaderCircle, LockKeyhole, LogOut, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Clock, KeyRound, LoaderCircle, LockKeyhole, LogOut, ShieldCheck, Smartphone, X } from 'lucide-react';
 import { ErrorMessage, Field } from './UI';
-import { PASSWORD_MIN_LENGTH, ROLE_INFO, type Permission, type SessionInfo, type SessionUser } from '../../shared/permissions';
+import { SECURITY_HEADERS, type SessionExpiredDetail } from '../api';
+import IdleWatcher from './IdleWatcher';
+import TwoFactorPanel, { CodeInput } from './TwoFactorPanel';
+import { PASSWORD_MIN_LENGTH, ROLE_INFO, type Permission, type SessionInfo, type SessionUser, type TwoFactorChallenge } from '../../shared/permissions';
 
 type AuthValue = {
   protected: boolean; demo: boolean; user: SessionUser | null; permissions: Permission[]; setupAvailable: boolean;
@@ -11,7 +14,7 @@ const AuthContext = createContext<AuthValue>({ protected: false, demo: false, us
 export function useAuth() { return useContext(AuthContext); }
 
 async function postJson<T>(url: string, body: unknown, method = 'POST'): Promise<T> {
-  const response = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const response = await fetch(url, { method, headers: { 'Content-Type': 'application/json', ...SECURITY_HEADERS }, body: JSON.stringify(body) });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || 'No se pudo completar la solicitud.');
   return data as T;
@@ -30,24 +33,42 @@ export function passwordProblem(value: { next: string; confirm: string }) {
   return '';
 }
 
+const IDLE_MESSAGE = 'Tu sesión se cerró por inactividad. Vuelve a iniciar sesión para continuar.';
+
 export default function AuthGate({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<SessionInfo | null>(null); const [error, setError] = useState('');
   const [credentials, setCredentials] = useState({ username: '', password: '' }); const [busy, setBusy] = useState(false);
   const [change, setChange] = useState({ current: '', next: '', confirm: '' });
-  const check = useCallback(async () => { try { const response = await fetch('/api/session', { cache: 'no-store' }); if (!response.ok) throw new Error('No se pudo conectar al servidor.'); setSession(await response.json()); setError(''); } catch (e) { setError((e as Error).message); } }, []);
+  const [challenge, setChallenge] = useState<TwoFactorChallenge | null>(null); const [code, setCode] = useState(''); const [useRecovery, setUseRecovery] = useState(false);
+  /** Aviso informativo en la pantalla de acceso (p. ej. sesión cerrada por inactividad). */
+  const [signedOutNotice, setSignedOutNotice] = useState(''); const [notice, setNotice] = useState('');
+  const check = useCallback(async () => { try { const response = await fetch('/api/session', { cache: 'no-store' }); if (!response.ok) throw new Error('No se pudo conectar al servidor.'); const info = await response.json() as SessionInfo; if (info.expiredReason === 'idle') setSignedOutNotice(IDLE_MESSAGE); setSession(info); setError(''); } catch (e) { setError((e as Error).message); } }, []);
   useEffect(() => {
     void check();
-    const expired = () => setSession(s => signedOut(s));
+    const expired = (event: Event) => { const detail = (event as CustomEvent<SessionExpiredDetail>).detail; if (detail?.code === 'SESSION_IDLE') setSignedOutNotice(IDLE_MESSAGE); setSession(s => signedOut(s)); };
     const recheck = () => { void check(); };
     window.addEventListener('session-expired', expired); window.addEventListener('session-changed', recheck);
     return () => { window.removeEventListener('session-expired', expired); window.removeEventListener('session-changed', recheck); };
   }, [check]);
+  const enter = (next: SessionInfo & { recoveryCodesLeft?: number }) => {
+    setCredentials(c => ({ username: c.username, password: '' })); setChallenge(null); setCode(''); setUseRecovery(false); setSignedOutNotice('');
+    if (typeof next.recoveryCodesLeft === 'number') setNotice(`Entraste con un código de recuperación. Te quedan ${next.recoveryCodesLeft}. ${next.recoveryCodesLeft <= 3 ? 'Genera códigos nuevos desde «Mi cuenta».' : ''}`.trim());
+    setSession(next);
+  };
   const login = async (event: React.FormEvent) => {
     event.preventDefault(); setBusy(true); setError('');
-    try { const next = await postJson<SessionInfo>('/api/login', credentials); setCredentials({ username: credentials.username, password: '' }); setSession(next); }
-    catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+    try {
+      const next = await postJson<SessionInfo | TwoFactorChallenge>('/api/login', credentials);
+      if ('twoFactorRequired' in next) { setChallenge(next); setCode(''); setCredentials(c => ({ username: c.username, password: '' })); } else enter(next);
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
-  const logout = useCallback(async () => { try { await fetch('/api/logout', { method: 'POST' }); } finally { if (window.location.hash && window.location.hash !== '#/') window.location.hash = '/'; setSession(s => signedOut(s)); setChange({ current: '', next: '', confirm: '' }); } }, []);
+  const verify = async (event: React.FormEvent) => {
+    event.preventDefault(); if (!challenge) return; setBusy(true); setError('');
+    try { enter(await postJson<SessionInfo & { recoveryCodesLeft?: number }>('/api/login/2fa', { challenge: challenge.challenge, code })); }
+    catch (e) { const message = (e as Error).message; setError(message); setCode(''); if (/caduc|bloquead/i.test(message)) setChallenge(null); } finally { setBusy(false); }
+  };
+  const logout = useCallback(async () => { try { await fetch('/api/logout', { method: 'POST', headers: SECURITY_HEADERS }); } finally { if (window.location.hash && window.location.hash !== '#/') window.location.hash = '/'; setSession(s => signedOut(s)); setChange({ current: '', next: '', confirm: '' }); setNotice(''); } }, []);
+  const idleExpired = useCallback(() => { setSignedOutNotice(IDLE_MESSAGE); void logout(); }, [logout]);
   const forcedChange = async (event: React.FormEvent) => {
     event.preventDefault(); const problem = passwordProblem(change); if (problem) { setError(problem); return; }
     setBusy(true); setError('');
@@ -61,14 +82,29 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     <form onSubmit={forcedChange}><Field label="Contraseña temporal" required><input type="password" autoComplete="current-password" value={change.current} onChange={e => setChange({ ...change, current: e.target.value })} required maxLength={256} autoFocus /></Field><PasswordFields value={change} onChange={v => setChange({ ...change, ...v })} /><ErrorMessage error={error} /><button className="btn btn-primary w-full" disabled={busy} type="submit" style={{ marginTop: 20 }}>{busy ? <LoaderCircle size={17} className="spin" /> : <>Guardar y continuar<ArrowRight size={16} /></>}</button></form>
     <button className="btn btn-ghost w-full" style={{ marginTop: 10 }} onClick={logout}><LogOut size={15} />Cerrar sesión</button></div></div>;
 
+  if (session.authenticated && session.user && session.twoFactorSetupRequired) return <div className="login-page"><div className="login-card login-card-wide"><Brand /><span className="section-icon" style={{ marginBottom: 18 }}><Smartphone size={21} /></span><h1>Protege tu cuenta de administrador.</h1><p>Hola, {session.user.displayName}. La política de este espacio exige la verificación en dos pasos a los administradores. Actívala para continuar.</p>
+    <TwoFactorPanel enabled={false} account={session.user.username} forced onSession={setSession} />
+    <button className="btn btn-ghost w-full" style={{ marginTop: 10 }} onClick={logout}><LogOut size={15} />Cerrar sesión</button></div></div>;
+
   if (session.authenticated) {
     const value: AuthValue = { protected: session.protected, demo: session.demo, user: session.user, permissions: session.permissions, setupAvailable: session.setupAvailable, can: p => session.permissions.includes(p), logout, refreshSession: check, applySession: setSession };
-    return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+    return <AuthContext.Provider value={value}>{children}
+      {session.user && (session.idleMinutes ?? 0) > 0 && <IdleWatcher onExpired={idleExpired} onLogout={logout} />}
+      {notice && <div className="auth-notice" role="status"><KeyRound size={16} /><span>{notice}</span><button className="icon-btn" aria-label="Cerrar aviso" onClick={() => setNotice('')}><X size={16} /></button></div>}
+    </AuthContext.Provider>;
   }
 
+  if (challenge) return <div className="login-page"><div className="login-card"><Brand /><span className="section-icon" style={{ marginBottom: 18 }}><Smartphone size={21} /></span><h1>Verificación en dos pasos.</h1><p>Hola, {challenge.displayName}. {useRecovery ? 'Escribe uno de tus códigos de recuperación. Cada código sirve una sola vez.' : 'Abre tu aplicación de autenticación y escribe el código de 6 dígitos de Nexo.'}</p>
+    <form onSubmit={verify}><CodeInput key={useRecovery ? 'recovery' : 'totp'} value={code} onChange={setCode} allowRecovery={useRecovery} autoFocus label={useRecovery ? 'Código de recuperación' : 'Código de verificación'} />
+      <ErrorMessage error={error} /><button className="btn btn-primary w-full" disabled={busy || (!useRecovery && code.length !== 6)} type="submit" style={{ marginTop: 20 }}>{busy ? <LoaderCircle size={17} className="spin" /> : <>Verificar y entrar<ArrowRight size={16} /></>}</button></form>
+    <button className="btn btn-ghost w-full" style={{ marginTop: 10 }} onClick={() => { setUseRecovery(!useRecovery); setCode(''); setError(''); }}><KeyRound size={15} />{useRecovery ? 'Usar el código de la aplicación' : '¿Sin teléfono? Usa un código de recuperación'}</button>
+    <button className="btn btn-ghost w-full" onClick={() => { setChallenge(null); setCode(''); setError(''); }}><ArrowLeft size={15} />Volver</button>
+    <p className="signature-disclaimer">¿Perdiste el teléfono y los códigos? Un administrador puede restablecer tu verificación en dos pasos.</p></div><div className="login-tagline">Cada servicio. Cada entrega. Todo en orden.</div></div>;
+
   return <div className="login-page"><div className="login-card"><Brand /><span className="section-icon" style={{ marginBottom: 18 }}><LockKeyhole size={21} /></span><h1>Bienvenido de nuevo.</h1><p>Accede con tu usuario personal. Cada persona del equipo ve y hace solo lo que su rol permite.</p>
+    {signedOutNotice && <div className="alert alert-info login-alert" role="status"><Clock size={16} /><p>{signedOutNotice}</p></div>}
     <form onSubmit={login}><Field label="Usuario" required><input autoComplete="username" autoCapitalize="none" spellCheck={false} value={credentials.username} onChange={e => setCredentials({ ...credentials, username: e.target.value })} placeholder="tu.usuario" required maxLength={80} autoFocus /></Field>
       <Field label="Contraseña" required><input type="password" autoComplete="current-password" value={credentials.password} onChange={e => setCredentials({ ...credentials, password: e.target.value })} required maxLength={1024} /></Field>
       <ErrorMessage error={error} /><button className="btn btn-primary w-full" disabled={busy} type="submit" style={{ marginTop: 20 }}>{busy ? <LoaderCircle size={17} className="spin" /> : <>Entrar a mi espacio<ArrowRight size={16} /></>}</button></form>
-    <div className="login-note"><ShieldCheck size={14} />Acceso privado · Sesión de 8 horas</div><p className="signature-disclaimer">¿Olvidaste tu contraseña? Pide a un administrador del espacio que te asigne una temporal.</p></div><div className="login-tagline">Cada servicio. Cada entrega. Todo en orden.</div></div>;
+    <div className="login-note"><ShieldCheck size={14} />Acceso privado · Bloqueo tras 5 intentos · Cierre por inactividad</div><p className="signature-disclaimer">¿Olvidaste tu contraseña? Pide a un administrador del espacio que te asigne una temporal.</p></div><div className="login-tagline">Cada servicio. Cada entrega. Todo en orden.</div></div>;
 }

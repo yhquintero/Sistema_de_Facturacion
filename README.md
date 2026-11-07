@@ -154,19 +154,25 @@ Cada persona entra con **su propio usuario y contraseña**. El rol se comprueba 
 - **Cambios inmediatos:** un cambio de rol se aplica en la siguiente solicitud, sin volver a iniciar sesión. Desactivar una cuenta o asignarle una contraseña nueva cierra sus sesiones. Cambiar la propia contraseña (desde **Mi cuenta**, con la actual) cierra las demás sesiones.
 - **Trazabilidad:** las cuentas no se eliminan, se desactivan. El registro de actividad de cada factura indica quién creó, editó, cambió el cobro o registró la firma. **Actividad de acceso** guarda inicios de sesión, intentos fallidos, altas, cambios de rol, restablecimientos y cierres de sesión (los últimos 5000 eventos). Nunca se registran contraseñas.
 - **Protecciones:** nadie puede cambiar su propio rol ni desactivarse, y siempre queda al menos un administrador activo. Los usuarios usan minúsculas, números, punto o guion; las contraseñas tienen al menos 12 caracteres.
-- **Contraseñas y sesiones:** contraseñas con scrypt y sal por cuenta; sesiones de 8 horas en SQLite guardadas como SHA-256 del token (sobreviven a un reinicio, la cookie no se puede reconstruir desde la base). Límite de 10 intentos fallidos por IP cada 15 minutos.
+- **Contraseñas y sesiones:** contraseñas con scrypt y sal por cuenta; sesiones en SQLite guardadas como SHA-256 del token (sobreviven a un reinicio, la cookie no se puede reconstruir desde la base). Duración máxima de 12 horas y **cierre por inactividad a los 30 minutos**: un minuto antes aparece «¿Sigues ahí?» con cuenta atrás, y la pantalla de acceso explica por qué se cerró. Otra pestaña en uso mantiene viva la sesión.
+- **Bloqueo por intentos:** 5 fallos seguidos (contraseña o código de verificación) bloquean ese usuario desde esa IP durante 5 minutos, aunque después se escriba la contraseña correcta. El mensaje indica cuántos intentos quedan. Además, cada IP admite como máximo 30 fallos cada 15 minutos.
+- **Verificación en dos pasos (TOTP):** desde **Mi cuenta → Verificación en dos pasos** se escanea un código QR con Google Authenticator, Microsoft Authenticator, 1Password, Aegis u otra app compatible. Al activarla se muestran **10 códigos de recuperación** de un solo uso (se pueden copiar o descargar y solo se guardan sus huellas SHA-256). Un código ya usado no vale dos veces. Desactivarla exige la contraseña y un código. Con `REQUIRE_ADMIN_2FA=true` los administradores deben activarla antes de poder trabajar.
+- **Mis sesiones:** cada persona ve en **Mi cuenta** los dispositivos con sesión abierta (navegador, IP y última actividad) y puede cerrar uno o todos los demás.
 - **Recuperar el acceso** desde la consola del servidor:
 
   ```bash
   npm run user:reset-password -- admin           # contraseña temporal para una cuenta existente
   npm run user:reset-password -- admin --admin   # además la reactiva como administrador (o la crea)
+  npm run user:reset-password -- ana --reset-2fa # desactiva su verificación en dos pasos (teléfono perdido)
   # Docker: docker compose exec facturacion npm run user:reset-password -- admin
   ```
 
 - **Modo abierto:** sin cuentas ni `APP_PASSWORD` (desarrollo), cualquiera con la dirección trabaja en el espacio como si fuera administrador, salvo gestionar usuarios. Desde **Usuarios y acceso** puedes crear el primer administrador; a partir de ese momento se exige iniciar sesión. Con `ALLOW_PUBLIC_DEMO=true` en producción no se pueden crear cuentas desde la interfaz.
 - **Actualizar desde la contraseña compartida:** en una instalación existente, el primer arranque con esta versión crea `admin` con el valor actual de `APP_PASSWORD`. Desde entonces `APP_PASSWORD` se ignora: cambiarla no modifica ninguna cuenta; usa **Mi cuenta** o el comando de recuperación.
 
-Sigue siendo un espacio de trabajo de un solo negocio: no hay varias empresas, permisos por cliente ni inicio de sesión con proveedores externos (SSO/2FA).
+Si alguien pierde el teléfono y sus códigos, un administrador puede **restablecer su verificación en dos pasos** desde su ficha en **Usuarios y acceso** (se cierran sus sesiones). La política completa, las cabeceras y cómo informar de una vulnerabilidad están en [`SECURITY.md`](SECURITY.md).
+
+Sigue siendo un espacio de trabajo de un solo negocio: no hay varias empresas, permisos por cliente ni inicio de sesión con proveedores externos (SSO).
 
 ## Servidor, acceso y persistencia
 
@@ -179,8 +185,14 @@ Sigue siendo un espacio de trabajo de un solo negocio: no hay varias empresas, p
 | `SEED_DEMO` | `true` incluye ejemplos; `false` crea un espacio vacío. Solo afecta al primer arranque de una base nueva. Por defecto: demostración en desarrollo y vacío en producción. |
 | `ALLOW_PUBLIC_DEMO` | `true` permite producción sin contraseña, **únicamente con datos ficticios**. |
 | `TRUST_PROXY` | `1` si hay exactamente un proxy de confianza con HTTPS; `0` por defecto. |
+| `SESSION_IDLE_MINUTES` / `SESSION_MAX_HOURS` | Cierre por inactividad (`30`; `0` lo desactiva) y duración máxima de la sesión (`12`). |
+| `LOGIN_MAX_ATTEMPTS` / `LOGIN_LOCK_MINUTES` | Intentos fallidos antes del bloqueo temporal (`5`) y su duración (`5`). |
+| `REQUIRE_ADMIN_2FA` | `true` obliga a los administradores a activar la verificación en dos pasos. |
+| `FRAME_ANCESTORS` | Quién puede mostrar Nexo en un `<iframe>` en producción: `self` (por defecto), `none` u orígenes concretos. |
+| `BACKUP_KEY` | Clave (≥16 caracteres) para cifrar las copias con AES-256-GCM. Sin ella se guardan sin cifrar. |
+| `BACKUP_KEEP` / `BACKUP_HOUR` / `BACKUP_AUTO` / `BACKUP_DIR` | Copias conservadas (`30`), hora de la copia diaria (`2`), `false` para desactivarla y directorio (`DATA_DIR/backups`). |
 
-La cookie de sesión es HttpOnly, SameSite=Strict y Secure bajo HTTPS correctamente detectado. Hay límite de intentos de acceso y comprobación de origen en solicitudes modificadoras. No expongas directamente el puerto si configuras confianza en un proxy (las IP del registro de accesos dependen de `TRUST_PROXY`).
+La cookie de sesión es HttpOnly, SameSite=Strict y Secure bajo HTTPS correctamente detectado. Toda solicitud modificadora debe llevar la cabecera propia `X-Nexo-Request: 1` y venir del mismo origen (anti-CSRF). En producción se envían `Content-Security-Policy` sin scripts en línea, `X-Frame-Options`, `Cross-Origin-Opener-Policy`/`Resource-Policy` y `Permissions-Policy`, y `Strict-Transport-Security` bajo HTTPS. En desarrollo no se envía CSP porque Vite necesita scripts en línea. No expongas directamente el puerto si configuras confianza en un proxy (las IP del registro de accesos dependen de `TRUST_PROXY`).
 
 `data/facturacion.sqlite` guarda los datos, las firmas en PNG, las cuentas (con contraseñas cifradas mediante scrypt) y el registro de accesos. Se habilitan claves foráneas y WAL; el archivo y las copias se crean con permisos privados en sistemas POSIX. No lo publiques en Git. El service worker **nunca almacena APIs, documentos, sesiones o firmas**; el modo móvil necesita conexión para consultar, guardar, firmar o exportar. No es una aplicación nativa para tiendas ni un sistema offline de edición.
 
@@ -197,15 +209,19 @@ El contenedor ejecuta Node sin privilegios, incluye comprobación de salud y con
 
 ### Copias de seguridad y restauración
 
+En producción se hace **una copia automática diaria** a partir de `BACKUP_HOUR` y se conservan las `BACKUP_KEEP` más recientes. Los administradores ven el estado (última copia, cifrado, programación), crean copias al momento y las descargan desde **Usuarios y acceso → Copias de seguridad**. Cada copia y cada descarga queda en la actividad de acceso.
+
 ```bash
-npm run backup
+npm run backup                                   # crea una copia y aplica la rotación
+npm run backup:verify                            # descifra y comprueba la más reciente (o -- <archivo> / -- --all)
+npm run backup:restore -- <archivo> --yes        # restaura (con el servidor detenido)
 # Docker:
 docker compose exec facturacion npm run backup
 ```
 
-Se crea una copia SQLite consistente mediante `VACUUM INTO` en `DATA_DIR/backups/`, incluso con WAL activo. Las sesiones activas se eliminan de la copia. Guarda copias cifradas fuera del servidor y aplica una política de retención; contienen datos personales, firmas y los hashes de contraseña de las cuentas. No hay envío automático a servicios externos.
+Cada copia es una instantánea consistente de SQLite (`VACUUM INTO`, válida con WAL activo) **sin sesiones abiertas ni bloqueos de acceso**, comprimida con gzip y, si existe `BACKUP_KEY`, **cifrada con AES-256-GCM** (`nexo-<fecha>.sqlite.gz.enc`; clave derivada con scrypt y sal propia por copia; cualquier alteración se detecta al descifrar). Guarda `BACKUP_KEY` en un gestor de contraseñas fuera del servidor: **sin ella no se puede restaurar**. Copia también los archivos a otro disco o ubicación; no hay envío automático a servicios externos.
 
-Para restaurar: **detén el servidor**, conserva una copia de lo existente, reemplaza `facturacion.sqlite` por la copia válida, elimina los antiguos archivos auxiliares `facturacion.sqlite-wal`/`facturacion.sqlite-shm` del destino detenido y vuelve a iniciar. Verifica clientes, totales, firmas y huellas. Ensaya la recuperación antes de depender de ella.
+`backup:restore` comprueba la integridad antes de tocar nada, guarda la base actual como `facturacion.sqlite.antes-de-restaurar-<fecha>`, elimina los auxiliares WAL y deja la copia en su lugar. Todas las personas deberán volver a iniciar sesión. Verifica clientes, totales, firmas y huellas, y ensaya la recuperación antes de depender de ella. Las copias antiguas de `facturacion-*.sqlite` (sin comprimir) se siguen reconociendo.
 
 ## Desarrollo y pruebas
 
@@ -218,7 +234,7 @@ npm run test:e2e
 npm audit
 ```
 
-Las pruebas de dominio/API/exportación crean bases aisladas temporales. Cubren avisos, cálculos de análisis y metas, búsqueda sin tildes, la paleta oscura derivada, validación, redondeo, numeración, relaciones, firma/consentimiento, instantáneas, integridad, auditoría, persistencia, autenticación, cuentas y la matriz de roles, y las **20 combinaciones de papel/orientación** en los tres formatos. Playwright usa bases desechables en `tmp/`, sin modificar `data/`: prueba CRUD, el flujo contractual completo, la paleta de comandos, los atajos, el tema oscuro persistente, las metas, el alta de un usuario de solo lectura con cambio de contraseña obligatorio, firma real en canvas, descargas, borradores, táctil y tamaños de 360 a 1440 px. Si usas un Chromium propio, establece `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`.
+Las pruebas de dominio/API/exportación crean bases aisladas temporales. Cubren avisos, cálculos de análisis y metas, búsqueda sin tildes, la paleta oscura derivada, validación, redondeo, numeración, relaciones, firma/consentimiento, instantáneas, integridad, auditoría, persistencia, autenticación, cuentas y la matriz de roles, la seguridad (vectores TOTP del RFC 6238, reutilización de códigos, códigos de recuperación, bloqueo por intentos, anti-CSRF, cabeceras, inactividad, «Mis sesiones», cifrado/rotación/restauración de copias), y las **20 combinaciones de papel/orientación** en los tres formatos. Playwright usa bases desechables en `tmp/`, sin modificar `data/`: prueba CRUD, el flujo contractual completo, la paleta de comandos, los atajos, el tema oscuro persistente, las metas, el alta de un usuario de solo lectura con cambio de contraseña obligatorio, la activación de la verificación en dos pasos con acceso mediante código de recuperación y la ausencia de infracciones de CSP en producción, firma real en canvas, descargas, borradores, táctil y tamaños de 360 a 1440 px. Si usas un Chromium propio, establece `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`.
 
 Hay CI de GitHub Actions para tipos, pruebas, compilación y navegador. La tipografía PDF DejaVu y su licencia están en `server/assets/fonts/`; no se requieren fuentes, CDNs ni APIs externas en ejecución.
 
@@ -234,4 +250,4 @@ scripts/             Copia SQLite, recuperación de acceso, iconos y tema oscuro
 tests/               Pruebas de dominio, HTTP, documentos y navegador
 ```
 
-API principal: `/api/health`, `/api/session`, `/api/login` (`username`, `password`), `/api/logout`, `/api/setup`, `/api/me/password`, `/api/users`, `/api/users/:id`, `/api/users/:id/sessions`, `/api/security-events`, `/api/dashboard`, `/api/supplier`, `/api/goals`, `/api/clients`, `/api/contracts`, `/api/catalog`, `/api/invoices`, `/api/invoices/:id/sign`, `/api/invoices/:id/status`, `/api/invoices/:id/integrity`, `/api/invoices/:id/events` y `/api/invoices/:id/export/{pdf|docx|xlsx}?paper=A4&orientation=portrait`.
+API principal: `/api/health`, `/api/session`, `/api/login` (`username`, `password`), `/api/login/2fa` (`challenge`, `code`), `/api/logout`, `/api/setup`, `/api/me/password`, `/api/me/2fa/{setup|enable|disable|recovery-codes}`, `/api/me/security`, `/api/me/sessions[/:id|/others]`, `/api/backups[/:archivo]`, `/api/users`, `/api/users/:id`, `/api/users/:id/sessions`, `/api/security-events`, `/api/dashboard`, `/api/supplier`, `/api/goals`, `/api/clients`, `/api/contracts`, `/api/catalog`, `/api/invoices`, `/api/invoices/:id/sign`, `/api/invoices/:id/status`, `/api/invoices/:id/integrity`, `/api/invoices/:id/events` y `/api/invoices/:id/export/{pdf|docx|xlsx}?paper=A4&orientation=portrait`.

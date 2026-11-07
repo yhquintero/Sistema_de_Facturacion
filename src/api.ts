@@ -1,6 +1,6 @@
 import type { InvoiceAuditEvent, InvoiceIntegrity } from './components/InvoiceAudit';
 import type { PaperOrientation, PaperSizeId } from '../shared/paperStandards';
-import type { SecurityEvent, SessionInfo, UserRole, WorkspaceUser } from '../shared/permissions';
+import type { BackupStatus, OwnSession, SecurityEvent, SessionInfo, TwoFactorSetup, UserRole, WorkspaceUser } from '../shared/permissions';
 import type {
   Client,
   Contract,
@@ -12,26 +12,33 @@ import type {
   SupplierProfile,
 } from '../shared/types';
 
+/** Cabecera anti-CSRF que el servidor exige en toda modificación (POST, PUT, PATCH, DELETE). */
+export const SECURITY_HEADERS = { 'X-Nexo-Request': '1' } as const;
+export type SessionExpiredDetail = { code?: string; message?: string };
+export const notifySessionExpired = (detail: SessionExpiredDetail = {}) => window.dispatchEvent(new CustomEvent<SessionExpiredDetail>('session-expired', { detail }));
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     cache: 'no-store',
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...SECURITY_HEADERS,
       ...(init?.headers || {}),
     },
   });
 
   if (!res.ok) {
-    if (res.status === 401) window.dispatchEvent(new Event('session-expired'));
-    let msg = `Error HTTP ${res.status}`;
+    let msg = `Error HTTP ${res.status}`; let code = '';
     try {
       const data = await res.json();
       if (data?.error) msg = data.error;
-      if (data?.code === 'PASSWORD_CHANGE_REQUIRED') window.dispatchEvent(new Event('session-changed'));
+      code = data?.code || '';
+      if (code === 'PASSWORD_CHANGE_REQUIRED' || code === 'TWO_FACTOR_SETUP_REQUIRED') window.dispatchEvent(new Event('session-changed'));
     } catch {
       // ignore
     }
+    if (res.status === 401) notifySessionExpired({ code, message: msg });
     throw new Error(msg);
   }
 
@@ -116,13 +123,23 @@ export const api = {
   listUsers: () => requestJson<(WorkspaceUser & { activeSessions: number })[]>('/api/users'),
   createUser: (data: { username: string; displayName: string; role: UserRole; password: string; mustChangePassword: boolean }) =>
     requestJson<WorkspaceUser>('/api/users', { method: 'POST', body: JSON.stringify(data) }),
-  updateUser: (id: string, data: { displayName?: string; role?: UserRole; active?: boolean; password?: string; mustChangePassword?: boolean }) =>
+  updateUser: (id: string, data: { displayName?: string; role?: UserRole; active?: boolean; password?: string; mustChangePassword?: boolean; resetTwoFactor?: true }) =>
     requestJson<WorkspaceUser>(`/api/users/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
   revokeUserSessions: (id: string) =>
     requestJson<{ ok: boolean; revoked: number }>(`/api/users/${encodeURIComponent(id)}/sessions`, { method: 'DELETE' }),
   listSecurityEvents: (limit = 60) => requestJson<SecurityEvent[]>(`/api/security-events?limit=${limit}`),
   changeOwnPassword: (currentPassword: string, newPassword: string) =>
     requestJson<SessionInfo>('/api/me/password', { method: 'PUT', body: JSON.stringify({ currentPassword, newPassword }) }),
+  getOwnSecurity: () => requestJson<{ twoFactorEnabled: boolean; recoveryCodesLeft: number; passwordChangedAt: string; idleMinutes: number; maxHours: number; requireAdminTwoFactor: boolean }>('/api/me/security'),
+  startTwoFactorSetup: () => requestJson<TwoFactorSetup>('/api/me/2fa/setup', { method: 'POST', body: '{}' }),
+  enableTwoFactor: (code: string) => requestJson<{ recoveryCodes: string[]; session: SessionInfo }>('/api/me/2fa/enable', { method: 'POST', body: JSON.stringify({ code }) }),
+  disableTwoFactor: (password: string, code: string) => requestJson<SessionInfo>('/api/me/2fa/disable', { method: 'POST', body: JSON.stringify({ password, code }) }),
+  regenerateRecoveryCodes: (code: string) => requestJson<{ recoveryCodes: string[] }>('/api/me/2fa/recovery-codes', { method: 'POST', body: JSON.stringify({ code }) }),
+  listOwnSessions: () => requestJson<OwnSession[]>('/api/me/sessions'),
+  revokeOwnSession: (id: string | 'others') => requestJson<{ ok: boolean; revoked: number }>(`/api/me/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  getBackups: () => requestJson<BackupStatus>('/api/backups'),
+  createBackup: () => requestJson<BackupStatus>('/api/backups', { method: 'POST', body: '{}' }),
+  backupDownloadUrl: (name: string) => `/api/backups/${encodeURIComponent(name)}`,
   setupFirstAdmin: (data: { username: string; displayName: string; password: string }) =>
     requestJson<SessionInfo>('/api/setup', { method: 'POST', body: JSON.stringify(data) }),
 
@@ -151,7 +168,7 @@ export const api = {
     )}`;
     const res = await fetch(url);
     if (!res.ok) {
-      if (res.status === 401) window.dispatchEvent(new Event('session-expired'));
+      if (res.status === 401) notifySessionExpired();
       let msg = `No se pudo generar el archivo .${format}`;
       try {
         const err = await res.json();
