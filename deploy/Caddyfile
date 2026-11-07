@@ -1,0 +1,19 @@
+# Solo dominio público propio. Antes de publicar: residencia, DNS y certificados verificables.
+# El backend solo acepta a este proxy; no se publica el puerto 3000.
+{
+    admin off
+}
+{$NEXO_DOMAIN} {
+    tls {
+        protocols tls1.2 tls1.3
+    }
+    request_body {
+        max_size 4MB
+    }
+    reverse_proxy facturacion:3000 {
+        header_up -Forwarded
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-For {remote_host}
+        flush_interval -1
+    }
+}

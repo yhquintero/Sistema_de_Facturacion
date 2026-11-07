@@ -1,0 +1,90 @@
+#Requires -Version 7.4
+[CmdletBinding()]
+param([switch]$Integration)
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+$repository = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+function Assert-True([bool]$Condition,[string]$Message) { if (!$Condition) { throw $Message } }
+foreach ($file in Get-ChildItem (Join-Path $repository 'control') -File) {
+    if ($file.Extension -notin @('.ps1','.psm1')) { continue }
+    $tokens = $null; $errors = $null
+    [Management.Automation.Language.Parser]::ParseFile($file.FullName,[ref]$tokens,[ref]$errors) | Out-Null
+    Assert-True ($errors.Count -eq 0) ("Error de sintaxis en " + $file.Name + ': ' + ($errors | Out-String))
+}
+Import-Module (Join-Path $repository 'control/Nexo.Control.psm1') -Force
+$module = Get-Module Nexo.Control
+$state = Join-Path ([IO.Path]::GetTempPath()) ('nexo-ps-ci-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $state | Out-Null
+try {
+    & $module {
+        param($State)
+        Set-PrivatePermissions $State
+        $file = Join-Path $State 'atomic.json'
+        Write-PrivateJson $file @{ test = 1 }
+        Write-PrivateJson $file @{ test = 2 }
+        if ((Get-Content $file -Raw | ConvertFrom-Json).test -ne 2) { throw 'La escritura atómica no conservó la versión nueva.' }
+        if ($IsWindows) {
+            $rules = @((Get-Acl -LiteralPath $State).Access)
+            if ($rules.Count -ne 2 -or @($rules | Where-Object IsInherited).Count) { throw 'La DACL no contiene únicamente operador y SYSTEM.' }
+        }
+        $current = Get-Process -Id $PID
+        $record = [PSCustomObject]@{ processId = $PID; startTicks = ($current.StartTime.ToUniversalTime().Ticks + 1); executable = $current.Path }
+        if (Get-OwnedProcess $record) { throw 'La identidad de un PID reutilizado no fue rechazada.' }
+        # Nunca llamar Stop-Control con el PID de este runner.
+    } $state
+    Write-Host 'PASS: AST PowerShell, módulo, DACL privada, JSON atómico e identidad de proceso.'
+    if ($Integration) {
+        $caddy = (Get-Command caddy -CommandType Application -ErrorAction Stop).Source
+        $port = 3143; $httpsPort = 8543
+        $configFile = Join-Path $state 'control.json'
+        $config = & $module {
+            param($State,$Caddy,$Port,$HttpsPort)
+            $secretDir = Join-Path $State 'secrets'; New-Item -ItemType Directory -Path $secretDir | Out-Null; Set-PrivatePermissions $secretDir
+            $access = Join-Path $secretDir 'access.scrypt'
+            # Texto PÚBLICO de fixture; nunca reutilizar para un despliegue.
+            $fixture = 'PUBLIC-SYNTHETIC-CI-PASSPHRASE-NOT-A-REAL-SECRET'
+            $node = Get-NodePath
+            $hash = $fixture | & $node --import tsx scripts/password.ts
+            if ($LASTEXITCODE -ne 0) { throw 'No se generó el hash sintético.' }
+            [IO.File]::WriteAllText($access, $hash.Trim(), [Text.UTF8Encoding]::new($false)); Set-PrivatePermissions $access
+            $key = Join-Path $secretDir 'backup.key'; [IO.File]::WriteAllBytes($key,[Security.Cryptography.RandomNumberGenerator]::GetBytes(32)); Set-PrivatePermissions $key
+            $storage = (Join-Path $State 'caddy-storage').Replace('\','/'); $caddyfile = Join-Path $State 'Caddyfile'
+            @"
+{
+    admin off
+    skip_install_trust
+    auto_https disable_redirects
+    storage file_system {
+        root "$storage"
+    }
+}
+https://localhost:$HttpsPort {
+    bind 127.0.0.1 ::1
+    tls internal
+    reverse_proxy 127.0.0.1:$Port {
+        header_up -Forwarded
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-For {remote_host}
+        flush_interval -1
+    }
+}
+"@ | Set-Content -LiteralPath $caddyfile -Encoding utf8NoBOM
+            return @{ schemaVersion = 1; mode = 'Local'; origin = "https://localhost:$HttpsPort"; internalPort = $Port; httpsPort = $HttpsPort; allowedOrigins = "https://localhost:$HttpsPort"; dataDir = Join-Path $State 'data'; passwordHashFile = $access; backupKeyFile = $key; caddyPath = $Caddy; caddySha256 = (Get-FileHash $Caddy -Algorithm SHA256).Hash; caddyfile = $caddyfile; caFile = Join-Path $State 'caddy-storage/pki/authorities/local/root.crt'; controllerName = 'FIXTURE CI SINTETICA'; privacyContact = 'ci@example.invalid'; dataCountry = 'CU'; exceptionReference = '' }
+        } $state $caddy $port $httpsPort
+        & $module { param($File,$Config) Write-PrivateJson $File $Config } $configFile $config
+        Invoke-NexoControl -Action Start -StateDirectory $state -NoBuild -NoBrowser
+        $status = @(Invoke-NexoControl -Action Status -StateDirectory $state)
+        Assert-True ($status.Count -eq 2 -and @($status | Where-Object PropioYActivo).Count -eq 2) 'Web/backend/proxy no pertenecen al panel.'
+        $probe = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/health" -TimeoutSec 5 -NoProxy
+        Assert-True ((($probe.Content | ConvertFrom-Json).ok) -eq $true) 'No está saludable.'
+        Invoke-NexoControl -Action Backup -StateDirectory $state
+        Assert-True (@(Get-ChildItem (Join-Path $state 'data/backups') -Filter '*.nxb').Count -eq 1) 'Falta respaldo cifrado.'
+        Invoke-NexoControl -Action Restart -StateDirectory $state -NoBuild -NoBrowser
+        Invoke-NexoControl -Action Stop -StateDirectory $state
+        Assert-True (!(Test-Path (Join-Path $state 'processes.json'))) 'El manifiesto no se limpió.'
+        Write-Host 'PASS: build existente + backend + Caddy local + HTTPS con CA verificada + backup + restart + stop.'
+    }
+} finally {
+    if (Test-Path (Join-Path $state 'processes.json')) { Invoke-NexoControl -Action Stop -StateDirectory $state }
+    Remove-Item -LiteralPath $state -Recurse -Force
+}

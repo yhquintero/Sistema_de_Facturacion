@@ -61,6 +61,7 @@ test('all views remain contained at mobile, tablet and desktop sizes', async ({ 
 
 test('protected production login, logout and private offline PWA fallback', async ({ page, context }) => {
   await page.goto('http://127.0.0.1:3101'); await expect(page.getByRole('heading', { name: 'Tu negocio, solo para ti.' })).toBeVisible();
+  await page.getByRole('button',{name:'Privacidad y tus datos',exact:true}).click();await expect(page.getByRole('dialog')).toContainText('Cookie de sesión');await expect(page.getByRole('dialog')).not.toContainText('Grupo Comercial');await page.getByRole('dialog').getByRole('button',{name:'Entendido'}).click();
   await page.getByLabel('Contraseña de acceso').fill('una-incorrecta'); await page.getByRole('button', { name: 'Entrar a mi espacio' }).click(); await expect(page.getByRole('alert')).toContainText('La contraseña no es correcta.');
   await page.getByLabel('Contraseña de acceso').fill('clave-publica-solo-para-e2e'); await page.getByRole('button', { name: 'Entrar a mi espacio' }).click(); await expect(page.locator('h1')).toHaveText('Todo tu negocio, en orden.');
   const cookie = (await context.cookies()).find(cookie => cookie.name === 'nexo_session'); expect(cookie?.httpOnly).toBe(true); expect(cookie?.sameSite).toBe('Strict');

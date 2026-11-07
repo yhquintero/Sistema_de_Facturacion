@@ -12,3 +12,16 @@ tmp/
 playwright-report/
 test-results/
 data/backups/
+
+# Secretos, paquetes de distribución y estado privados (no versionar).
+releases/
+control-state/
+secrets/
+tls/
+*.scrypt
+*.key
+*.pem
+*.pfx
+*.p12
+*.nxb
+*.nxb.json

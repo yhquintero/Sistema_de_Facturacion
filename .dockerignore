@@ -9,3 +9,14 @@ tmp
 *.log
 test-results
 playwright-report
+
+releases
+control-state
+secrets
+tls
+*.scrypt
+*.key
+*.pem
+*.pfx
+*.p12
+*.nxb

@@ -16,7 +16,7 @@ after(async () => { await Promise.all([new Promise<void>(resolve => server.close
 const request = (url: string, method = 'GET', body?: unknown, headers: Record<string, string> = {}) => fetch(`${origin}${url}`, { method, headers: { 'Content-Type': 'application/json', ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
 
 test('health, standards, JSON 404 and same-origin write protection', async () => {
-  const response = await request('/api/health'); assert.equal(response.status, 200); assert.equal((await response.json()).paperStandards.length, 10); assert.equal(response.headers.get('cache-control'), 'no-store');
+  const response = await request('/api/health'); assert.equal(response.status, 200); assert.equal((await response.json()).ok, true); assert.equal((await (await request('/api/paper-standards')).json()).length, 10); assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.equal((await request('/api/does-not-exist')).status, 404); assert.equal((await request('/api/invoices/missing')).status, 404);
   assert.equal((await request('/api/clients', 'POST', { name: 'Evil', code: 'EVIL' }, { Origin: 'https://other.invalid' })).status, 403);
 });
@@ -53,6 +53,7 @@ test('optional password sessions protect all documents and exports with HttpOnly
   assert.equal((await fetch(`${protectedOrigin}/api/invoices`)).status, 401); assert.equal((await fetch(`${protectedOrigin}/api/invoices/inv-02/export/pdf`)).status, 401);
   const bad = await fetch(`${protectedOrigin}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'incorrect' }) }); assert.equal(bad.status, 401);
   const login = await fetch(`${protectedOrigin}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) }); assert.equal(login.status, 200); const cookie = login.headers.get('set-cookie')!; assert.match(cookie, /HttpOnly/); assert.match(cookie, /SameSite=Strict/);
-  const headers = { Cookie: cookie.split(';')[0] }; assert.equal((await fetch(`${protectedOrigin}/api/clients`, { headers })).status, 200);
+  const loggedIn = await (await fetch(`${protectedOrigin}/api/session`, { headers: { Cookie: cookie.split(';')[0] } })).json();
+  const headers = { Cookie: cookie.split(';')[0], 'X-CSRF-Token': loggedIn.csrfToken }; assert.equal((await fetch(`${protectedOrigin}/api/clients`, { headers })).status, 200);
   assert.equal((await fetch(`${protectedOrigin}/api/logout`, { method: 'POST', headers })).status, 200); assert.equal((await fetch(`${protectedOrigin}/api/clients`, { headers })).status, 401);
 });

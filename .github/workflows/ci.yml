@@ -1,4 +1,4 @@
-name: Calidad y flujos de facturación
+name: Calidad, seguridad y operación
 on:
   push:
   pull_request:
@@ -7,21 +7,66 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          node-version: 22
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.22.3
           cache: npm
       - run: npm ci
+      - run: npm audit --audit-level=high
       - run: npm run typecheck
-      - run: npm run test
+      - run: npm test
       - run: npm run build
+      - run: npm sbom --sbom-format=cyclonedx --omit=dev > sbom.cdx.json
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: failure()
         with:
-          name: navegador-diagnosticos
+          name: navegador-diagnosticos-solo-datos-sinteticos
           path: test-results/
           retention-days: 7
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dependencias-sbom
+          path: sbom.cdx.json
+          retention-days: 30
+  windows-control:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.22.3
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Caddy oficial con checksum contrastado
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '2.11.9'
+          $tools = Join-Path $env:RUNNER_TEMP 'nexo-caddy'
+          New-Item -ItemType Directory $tools -Force | Out-Null
+          gh release download "v$version" --repo caddyserver/caddy --pattern "caddy_${version}_windows_amd64.zip" --pattern "caddy_${version}_checksums.txt" --dir $tools
+          if ($LASTEXITCODE -ne 0) { throw 'No se pudo descargar la distribución oficial fijada.' }
+          $archive = Join-Path $tools "caddy_${version}_windows_amd64.zip"
+          $line = Get-Content (Join-Path $tools "caddy_${version}_checksums.txt") | Where-Object { $_ -match "\s+caddy_${version}_windows_amd64\.zip$" }
+          if (@($line).Count -ne 1) { throw 'Checksum oficial no encontrado de forma inequívoca.' }
+          $expected = ($line -split '\s+')[0]
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected.ToLowerInvariant()) { throw 'Checksum de Caddy no coincide.' }
+          Expand-Archive -LiteralPath $archive -DestinationPath $tools
+          $tools | Out-File $env:GITHUB_PATH -Append -Encoding utf8
+      - name: Parser real PowerShell, ACL, inicio/HTTPS/backup/reinicio/parada con fixtures
+        run: ./tests/powershell/Panel.Tests.ps1 -Integration

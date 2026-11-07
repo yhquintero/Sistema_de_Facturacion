@@ -1,4 +1,3 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import express, { type ErrorRequestHandler, type Request, type Response } from 'express';
 import { INTERNATIONAL_PAPER_STANDARDS, PAPER_STANDARDS_LIST, type PaperOrientation, type PaperSizeId } from '../shared/paperStandards';
 import { deleteClient, deleteContract, deleteInvoice, deleteServiceCatalogItem, getDashboardStats, getInvoiceById, getInvoiceEvents, getInvoiceIntegrity, getSupplierProfile, getWorkspaceInfo, listClients, listContracts, listInvoices, listServiceCatalog, saveClient, saveContract, saveInvoice, saveServiceCatalogItem, signInvoiceByClient, updateInvoiceStatus, updateSupplierProfile } from './db';
@@ -6,45 +5,27 @@ import { generateInvoicePdfBuffer } from './exporters/pdfExporter';
 import { generateInvoiceDocxBuffer } from './exporters/docxExporter';
 import { generateInvoiceXlsxBuffer } from './exporters/xlsxExporter';
 import { sanitizeFilename } from './exporters/formatHelpers';
+import { readConfig, type RuntimeConfig } from './config';
+import { installHttpSecurity, createLimiter, isWrite } from './security/http';
+import { installSessions } from './security/sessions';
+import { peerId, securityLog } from './security/log';
+import type { SecurityStatus } from '../shared/security';
+import { installFiscalRoutes } from './fiscal/routes';
+import { installRealtime, publishChange, realtimeConnectionCount } from './realtime';
 
-const digest = (value: string) => createHash('sha256').update(value).digest();
-function respond(action: (req: Request, res: Response) => unknown, status = 200) { return (req: Request, res: Response, next: express.NextFunction) => { try { const data = action(req, res); if (!res.headersSent) res.status(status).json(data); } catch (error) { next(error); } }; }
-export function createApp(options: { password?: string } = {}) {
-  const app = express(); const password = options.password ?? process.env.APP_PASSWORD ?? '';
-  if (password && password.length < 12) throw new Error('APP_PASSWORD debe tener al menos 12 caracteres.');
-  app.disable('x-powered-by');
-  app.set('trust proxy', process.env.TRUST_PROXY === '1' ? 1 : false);
-  app.use((_req, res, next) => { res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'same-origin'); next(); });
-  app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
-  app.use(express.json({ limit: '4mb' }));
-  app.use('/api', (req, res, next) => {
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin) {
-      try { if (new URL(req.headers.origin).host !== req.get('host')) { res.status(403).json({ error: 'Origen de solicitud no autorizado.' }); return; } } catch { res.status(403).json({ error: 'Origen no válido.' }); return; }
-    }
-    next();
-  });
-  const sessions = new Map<string, number>(); const attempts = new Map<string, { count: number; reset: number }>();
-  const sessionKey = (req: Request) => { const cookie = req.headers.cookie?.split(';').map(s => s.trim()).find(s => s.startsWith('nexo_session='))?.slice('nexo_session='.length) || ''; return digest(cookie).toString('hex'); };
-  const authenticated = (req: Request) => { if (!password) return true; const key = sessionKey(req); const expires = sessions.get(key); if (!expires || expires < Date.now()) { sessions.delete(key); return false; } return true; };
-  app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'Nexo · Sistema de Facturación (Web, Servidor, Móvil)', timestamp: new Date().toISOString(), supportedFormats: ['pdf', 'docx', 'xlsx'], paperStandards: PAPER_STANDARDS_LIST.map(p => p.id) }));
-  app.get('/api/session', (req, res) => res.json({ protected: !!password, authenticated: authenticated(req), ...getWorkspaceInfo() }));
-  app.post('/api/login', (req, res) => {
-    if (!password) { res.json({ ok: true }); return; }
-    const now = Date.now(); const key = req.ip || 'unknown';
-    for (const [ip, attempt] of attempts) if (attempt.reset < now) attempts.delete(ip);
-    if (attempts.size > 5000) { res.status(429).json({ error: 'Demasiadas solicitudes. Inténtalo más tarde.' }); return; }
-    const attempt = attempts.get(key) || { count: 0, reset: now + 15 * 60_000 };
-    if (attempt.count >= 10) { res.status(429).json({ error: 'Demasiados intentos. Espera 15 minutos antes de volver a intentar.' }); return; }
-    const candidate = typeof req.body?.password === 'string' ? req.body.password : '';
-    if (candidate.length > 1024 || !timingSafeEqual(digest(candidate), digest(password))) { attempt.count++; attempts.set(key, attempt); res.status(401).json({ error: 'La contraseña no es correcta.' }); return; }
-    attempts.delete(key); for (const [token, expires] of sessions) if (expires < now) sessions.delete(token);
-    if (sessions.size >= 100) sessions.delete(sessions.keys().next().value!);
-    const token = randomBytes(32).toString('hex'); sessions.set(digest(token).toString('hex'), now + 8 * 60 * 60_000);
-    res.cookie('nexo_session', token, { httpOnly: true, sameSite: 'strict', secure: req.secure, maxAge: 8 * 60 * 60_000, path: '/' }); res.json({ ok: true });
-  });
-  app.post('/api/logout', (req, res) => { sessions.delete(sessionKey(req)); res.clearCookie('nexo_session', { httpOnly: true, sameSite: 'strict', secure: req.secure, path: '/' }); res.json({ ok: true }); });
-  app.use('/api', (req, res, next) => { if (!authenticated(req)) { res.status(401).json({ error: 'Inicia sesión para acceder a tu espacio de trabajo.' }); return; } next(); });
-
+function respond(action: (req: Request, res: Response) => unknown, status = 200) { return (req: Request, res: Response, next: express.NextFunction) => { try { const data = action(req, res); if (!res.headersSent) res.status(status).json(data); if (isWrite(req) && res.statusCode < 400) publishChange(req.path.split('/')[2] || 'workspace'); } catch (error) { next(error); } }; }
+export function createApp(options: { password?: string; config?: RuntimeConfig } = {}) {
+  const app = express(); const config = options.config || readConfig();
+  installHttpSecurity(app, config);
+  const apiLimit = createLimiter(900, 60_000), exportLimit = createLimiter(20, 60_000);
+  app.use('/api', (req, res, next) => { if (req.path === '/health' || apiLimit(peerId(req), res)) next(); });
+  app.use(express.json({ limit: '4mb', strict: true }));
+  app.get('/api/health', (req, res) => { if (config.controlInstance && req.get('X-Nexo-Control-Instance') === config.controlInstance && ['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress || '')) res.setHeader('X-Nexo-Instance',config.controlInstance); res.json({ ok: true, service: 'Nexo Facturación', timestamp: new Date().toISOString() }); });
+  app.get('/api/privacy', (_req, res) => res.json({ version: '2026-11-04', jurisdiction: 'CU', configured: !!config.controllerName && !!config.privacyContact, controller: config.controllerName || 'Pendiente de identificar por el responsable', contact: config.privacyContact || 'Pendiente de configurar', purpose: 'Gestión contractual, facturación, soporte técnico y obligaciones tributarias. Sin publicidad ni analítica de terceros.', cookies: 'Solo cookie de sesión necesaria; sin seguimiento publicitario.', retention: 'Según calendario aprobado y obligaciones legales; no se elimina automáticamente información fiscal o sujeta a conservación.', dataLocationDeclared: config.dataCountry, warning: 'Este texto informativo no sustituye el aviso de privacidad y el calendario de conservación aprobados por el responsable.' }));
+  const authentication = installSessions(app, config, options.password);
+  installRealtime(app, authentication.check);
+  installFiscalRoutes(app);
+  app.get('/api/security/status', (req, res) => res.json({ tls: { configuredMode: config.tlsMode, observedHttps: req.secure, publicOrigin: config.publicOrigin }, authentication: { enabled: authentication.enabled, credentialKind: authentication.credentialKind, csrf: authentication.enabled, idleTimeoutMinutes: 30, absoluteTimeoutHours: 8, multiuser: false, mfa: false }, backupEncryptionConfigured: !!config.backupKeyFile, dataAtRestEncryption: 'Requiere BitLocker/LUKS o almacenamiento cifrado verificado; SQLite no está cifrado por la aplicación.', declaredDataCountry: config.dataCountry, residencyVerified: false, realtimeConnections: realtimeConnectionCount(), privacyConfigured: !!config.privacyContact && !!config.controllerName, fiscal: { jurisdiction: 'CU', officialDj08Ready: false, reason: 'Plantilla e instructivo oficiales para ingresos 2026/campaña 2027 pendientes de verificación.' }, assessedAt: '2026-11-04', externalTlsScanVerified: false } satisfies SecurityStatus));
   app.get('/api/paper-standards', respond(() => PAPER_STANDARDS_LIST));
   app.get('/api/dashboard', respond(() => ({ stats: getDashboardStats(), recentInvoices: listInvoices().slice(0, 6) })));
   app.get('/api/supplier', respond(() => getSupplierProfile()));
@@ -70,7 +51,7 @@ export function createApp(options: { password?: string } = {}) {
   app.get('/api/invoices/:id/integrity', respond(req => getInvoiceIntegrity(req.params.id)));
   app.get('/api/invoices/:id/events', respond(req => getInvoiceEvents(req.params.id)));
   app.delete('/api/invoices/:id', respond(req => { deleteInvoice(req.params.id); return { ok: true }; }));
-  app.get('/api/invoices/:id/export/:format', async (req, res, next) => {
+  app.get('/api/invoices/:id/export/:format', (req, res, next) => { if (exportLimit(peerId(req), res)) next(); }, async (req, res, next) => {
     try {
       const invoice = getInvoiceById(req.params.id); if (!invoice) { res.status(404).json({ error: 'Factura no encontrada.' }); return; }
       const format = req.params.format.toLowerCase(); const paper = String(req.query.paper || invoice.preferredPaperSize).toUpperCase(); const orientation = String(req.query.orientation || invoice.preferredOrientation);
@@ -88,10 +69,10 @@ export function createApp(options: { password?: string } = {}) {
   const errorHandler: ErrorRequestHandler = (error: Error & { type?: string; code?: string }, _req, res, _next) => {
     if (res.headersSent) return;
     if (error.type === 'entity.too.large') { res.status(413).json({ error: 'La solicitud supera el límite de 4 MB.' }); return; }
-    if (error instanceof SyntaxError) { res.status(400).json({ error: 'El cuerpo JSON de la solicitud no es válido.' }); return; }
+    if (error.type === 'entity.parse.failed') { res.status(400).json({ error: 'El cuerpo JSON de la solicitud no es válido.' }); return; }
     if (error.code?.includes('CONSTRAINT_FOREIGNKEY') || error.message.includes('FOREIGN KEY constraint')) { res.status(409).json({ error: 'No se puede eliminar un Cliente con contratos o facturas asociados.' }); return; }
     if (error.message.includes('UNIQUE constraint')) { res.status(409).json({ error: 'Este número o código ya existe.' }); return; }
-    if (error.code?.startsWith('ERR_SQLITE')) { console.error('Error de base de datos:', error.code); res.status(500).json({ error: 'No se pudo completar la operación de almacenamiento.' }); return; }
+    if (error.code || ['TypeError', 'ReferenceError', 'SyntaxError'].includes(error.name)) { securityLog('internal_error', { requestId: res.locals.requestId, status: 500, reason: error.code || error.name }); res.status(500).json({ error: 'No se pudo completar la operación. Consulta el identificador de solicitud con el administrador.' }); return; }
     res.status(/no encontrad[oa]/i.test(error.message) ? 404 : 400).json({ error: error.message || 'No se pudo completar la solicitud.' });
   };
   app.use(errorHandler);
