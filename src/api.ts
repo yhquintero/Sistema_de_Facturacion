@@ -1,5 +1,6 @@
 import type { InvoiceAuditEvent, InvoiceIntegrity } from './components/InvoiceAudit';
 import type { PaperOrientation, PaperSizeId } from '../shared/paperStandards';
+import type { SecurityEvent, SessionInfo, UserRole, WorkspaceUser } from '../shared/permissions';
 import type {
   Client,
   Contract,
@@ -26,6 +27,7 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
     try {
       const data = await res.json();
       if (data?.error) msg = data.error;
+      if (data?.code === 'PASSWORD_CHANGE_REQUIRED') window.dispatchEvent(new Event('session-changed'));
     } catch {
       // ignore
     }
@@ -106,6 +108,19 @@ export const api = {
     }),
   deleteInvoice: (id: string) =>
     requestJson<{ ok: boolean }>(`/api/invoices/${id}`, { method: 'DELETE' }),
+
+  listUsers: () => requestJson<(WorkspaceUser & { activeSessions: number })[]>('/api/users'),
+  createUser: (data: { username: string; displayName: string; role: UserRole; password: string; mustChangePassword: boolean }) =>
+    requestJson<WorkspaceUser>('/api/users', { method: 'POST', body: JSON.stringify(data) }),
+  updateUser: (id: string, data: { displayName?: string; role?: UserRole; active?: boolean; password?: string; mustChangePassword?: boolean }) =>
+    requestJson<WorkspaceUser>(`/api/users/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
+  revokeUserSessions: (id: string) =>
+    requestJson<{ ok: boolean; revoked: number }>(`/api/users/${encodeURIComponent(id)}/sessions`, { method: 'DELETE' }),
+  listSecurityEvents: (limit = 60) => requestJson<SecurityEvent[]>(`/api/security-events?limit=${limit}`),
+  changeOwnPassword: (currentPassword: string, newPassword: string) =>
+    requestJson<SessionInfo>('/api/me/password', { method: 'PUT', body: JSON.stringify({ currentPassword, newPassword }) }),
+  setupFirstAdmin: (data: { username: string; displayName: string; password: string }) =>
+    requestJson<SessionInfo>('/api/setup', { method: 'POST', body: JSON.stringify(data) }),
 
   getExportUrl: (
     invoiceId: string,

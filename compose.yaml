@@ -9,7 +9,9 @@ services:
       NODE_ENV: production
       PORT: 3000
       DATA_DIR: /app/data
+      # Crea el primer administrador si la base aun no tiene cuentas.
       APP_PASSWORD: ${APP_PASSWORD:?Define APP_PASSWORD en .env (minimo 12 caracteres)}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       SEED_DEMO: ${SEED_DEMO:-false}
       TRUST_PROXY: ${TRUST_PROXY:-0}
     volumes:

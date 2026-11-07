@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
     "test:e2e": "playwright test",
-    "backup": "node --env-file-if-exists=.env --import tsx scripts/backup.ts"
+    "backup": "node --env-file-if-exists=.env --import tsx scripts/backup.ts",
+    "user:reset-password": "node --env-file-if-exists=.env --import tsx scripts/reset-password.ts"
   },
   "dependencies": {
     "decimal.js": "^10.6.0",
