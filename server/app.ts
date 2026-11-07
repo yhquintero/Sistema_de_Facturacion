@@ -1,6 +1,6 @@
 import express, { type ErrorRequestHandler, type Request, type Response } from 'express';
 import { INTERNATIONAL_PAPER_STANDARDS, PAPER_STANDARDS_LIST, type PaperOrientation, type PaperSizeId } from '../shared/paperStandards';
-import { deleteClient, deleteContract, deleteInvoice, deleteServiceCatalogItem, getDashboardStats, getInvoiceById, getInvoiceEvents, getInvoiceIntegrity, getSupplierProfile, getWorkspaceInfo, listClients, listContracts, listInvoices, listServiceCatalog, saveClient, saveContract, saveInvoice, saveServiceCatalogItem, signInvoiceByClient, updateInvoiceStatus, updateSupplierProfile } from './db';
+import { deleteClient, deleteContract, deleteInvoice, deleteServiceCatalogItem, getDashboardStats, getInvoiceById, getInvoiceEvents, getInvoiceIntegrity, getRevenueGoals, getSupplierProfile, getWorkspaceInfo, listClients, listContracts, listInvoices, listServiceCatalog, saveClient, saveRevenueGoals, saveContract, saveInvoice, saveServiceCatalogItem, signInvoiceByClient, updateInvoiceStatus, updateSupplierProfile } from './db';
 import { generateInvoicePdfBuffer } from './exporters/pdfExporter';
 import { generateInvoiceDocxBuffer } from './exporters/docxExporter';
 import { generateInvoiceXlsxBuffer } from './exporters/xlsxExporter';
@@ -115,6 +115,8 @@ export function createApp(options: { password?: string; allowSetup?: boolean; ad
   app.get('/api/dashboard', respond(() => ({ stats: getDashboardStats(), recentInvoices: listInvoices().slice(0, 6) })));
   app.get('/api/supplier', respond(() => getSupplierProfile()));
   app.put('/api/supplier', requirePermission('supplier.write'), respond(req => updateSupplierProfile(req.body)));
+  app.get('/api/goals', respond(() => getRevenueGoals()));
+  app.put('/api/goals', requirePermission('supplier.write'), respond(req => saveRevenueGoals(req.body)));
   app.get('/api/clients', respond(() => listClients()));
   app.post('/api/clients', requirePermission('clients.write'), respond(req => saveClient({ ...req.body, id: undefined }), 201));
   app.put('/api/clients/:id', requirePermission('clients.write'), respond(req => saveClient({ ...req.body, id: req.params.id })));

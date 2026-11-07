@@ -7,6 +7,7 @@ import type {
   DashboardStats,
   Invoice,
   InvoiceStatus,
+  RevenueGoals,
   ServiceCatalogItem,
   SupplierProfile,
 } from '../shared/types';
@@ -50,6 +51,9 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
+
+  getGoals: () => requestJson<RevenueGoals>('/api/goals'),
+  saveGoals: (goals: RevenueGoals) => requestJson<RevenueGoals>('/api/goals', { method: 'PUT', body: JSON.stringify(goals) }),
 
   listClients: () => requestJson<Client[]>('/api/clients'),
   createClient: (data: Omit<Client, 'id' | 'createdAt'>) =>

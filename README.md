@@ -33,7 +33,9 @@ npm start
 ## Qué incluye
 
 - **Usuarios y roles:** cuentas personales con contraseña propia, cuatro roles aplicados por el servidor, contraseñas temporales, desactivación, cierre de sesiones y registro de accesos. Ver [Usuarios, roles y acceso](#usuarios-roles-y-acceso).
-- **Panel:** facturación, cobros, pendientes, actividad reciente, contratos y acceso rápido. Los importes no se mezclan entre monedas.
+- **Panel:** saludo, avisos (cobros vencidos o por vencer, contratos por terminar), primeros pasos guiados, facturación, cobros, pendientes, actividad reciente y acceso rápido. Los importes no se mezclan entre monedas.
+- **Análisis y metas:** facturado del mes frente al anterior, acumulado del año, ticket promedio, tasa de cobro, antigüedad de lo pendiente (al día, 1–30, 31–60, más de 60 días), mejores clientes y tendencia de 6, 12 o 24 meses con la meta mensual. Metas mensuales y anuales por moneda, con aviso de si el ritmo actual llega. Datos de la gráfica en tabla, CSV e informe imprimible.
+- **Experiencia:** paleta de comandos `Ctrl/⌘ + K`, atajos de teclado, tema automático/claro/oscuro, tamaño de letra ajustable y campana de avisos. Ver [Experiencia de uso](#experiencia-de-uso).
 - **Clientes:** datos fiscales, contacto y representante autorizado.
 - **Contratos Suministrador ↔ Cliente:** alcance, vigencia, moneda, condiciones, garantías, cláusulas y declaración de recepción.
 - **Facturas:** numeración correlativa, descuentos por línea, impuestos configurables, notas y estados de cobro. Los importes se calculan en el servidor; no se confía en totales enviados por el navegador.
@@ -83,6 +85,30 @@ Todos los formatos permiten **vertical y horizontal**, con márgenes y dimension
 | Tabloid | 279,4 × 431,8 |
 
 «Oficio» puede significar otro tamaño según el país: aquí equivale a Legal de 8,5 × 14 pulgadas; Folio de 8,5 × 13 es una opción aparte. ISO B4/B5 **no son JIS B4/B5**: Excel utiliza B4 nativo y dimensiones explícitas para B5. La impresora y la aplicación de Office deben admitir el tamaño elegido; revisa la configuración de impresión. La vista de lectura web es continua: **Vista PDF real** muestra la paginación final. Word/Excel pueden redistribuir páginas según su versión y las fuentes disponibles.
+
+## Experiencia de uso
+
+Inspirada en la Web de [NovaGest](https://github.com/yhquintero/inventario), adaptada a la facturación.
+
+- **Paleta de comandos (`Ctrl/⌘ + K` o `/`):** busca facturas, clientes y contratos sin distinguir mayúsculas ni tildes («logistico» encuentra «Logístico») y resalta lo que coincide. También ejecuta acciones: nueva factura, nuevo cliente, ver vencidas, cambiar tema… Usa ↑ ↓ y Enter. Solo muestra lo que tu rol permite.
+- **Atajos de teclado:** funcionan cuando no estás escribiendo en un campo. Pulsa `?` para verlos todos.
+
+  | Tecla | Acción |
+  | --- | --- |
+  | `Ctrl/⌘ + K`, `/` | Buscar o ejecutar una acción |
+  | `N` | Nueva factura |
+  | `T` | Cambiar tema |
+  | `G` y luego `R` `F` `C` `O` `S` `A` `N` `U` | Ir a Resumen, Facturas, Clientes, Contratos, Catálogo, Análisis, Mi negocio o Usuarios |
+  | `?` | Lista de atajos |
+
+- **Tema automático, claro u oscuro:** «Automático» sigue al sistema y cambia en vivo si el equipo pasa a modo nocturno. La hoja de la factura y el lienzo de firma siguen en blanco, como el papel, y la impresión sale siempre en claro. Se elige en **Apariencia**, con el botón de la barra superior o con `T`.
+- **Tamaño de letra:** Normal, Grande o Muy grande. Agranda textos, iconos y botones a la vez; al imprimir se usa el normal. Tema y letra se guardan en cada navegador.
+- **Avisos:** la campana y el Resumen avisan de facturas vencidas (urgente), facturas que vencen en 7 días, conformidades pendientes, contratos que terminan en 30 días o que siguen activos tras su fin y borradores sin tocar en 14 días. El menú Facturas se marca en rojo si hay vencidas.
+- **Primeros pasos:** una lista en el Resumen guía la puesta en marcha: datos del negocio, primer cliente, contrato, factura, firma y meta. Se puede ocultar.
+
+Las metas se guardan en el servidor (`GET/PUT /api/goals`): todos las consultan y solo quien edita **Mi negocio** (administrador) puede cambiarlas.
+
+> Para desarrolladores: `src/index.css` se escribe con colores normales. Al compilar, `scripts/theme-colors.ts` convierte cada color en una variable y calcula su versión oscura (mismo tono, luz invertida; los textos nunca bajan de una luz legible y las sombras no se invierten). Para que un color de acento se aclare en oscuro, usa tonos con luminosidad inferior al 50 %. Las zonas con `.theme-keep-light` o `.paper-sheet` se quedan en claro.
 
 ## Flujo de trabajo
 
@@ -192,19 +218,20 @@ npm run test:e2e
 npm audit
 ```
 
-Las pruebas de dominio/API/exportación crean bases aisladas temporales. Cubren validación, redondeo, numeración, relaciones, firma/consentimiento, instantáneas, integridad, auditoría, persistencia, autenticación, cuentas y la matriz de roles, y las **20 combinaciones de papel/orientación** en los tres formatos. Playwright usa bases desechables en `tmp/`, sin modificar `data/`: prueba CRUD, el flujo contractual completo, el alta de un usuario de solo lectura con cambio de contraseña obligatorio, firma real en canvas, descargas, borradores, táctil y tamaños de 360 a 1440 px. Si usas un Chromium propio, establece `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`.
+Las pruebas de dominio/API/exportación crean bases aisladas temporales. Cubren avisos, cálculos de análisis y metas, búsqueda sin tildes, la paleta oscura derivada, validación, redondeo, numeración, relaciones, firma/consentimiento, instantáneas, integridad, auditoría, persistencia, autenticación, cuentas y la matriz de roles, y las **20 combinaciones de papel/orientación** en los tres formatos. Playwright usa bases desechables en `tmp/`, sin modificar `data/`: prueba CRUD, el flujo contractual completo, la paleta de comandos, los atajos, el tema oscuro persistente, las metas, el alta de un usuario de solo lectura con cambio de contraseña obligatorio, firma real en canvas, descargas, borradores, táctil y tamaños de 360 a 1440 px. Si usas un Chromium propio, establece `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`.
 
 Hay CI de GitHub Actions para tipos, pruebas, compilación y navegador. La tipografía PDF DejaVu y su licencia están en `server/assets/fonts/`; no se requieren fuentes, CDNs ni APIs externas en ejecución.
 
 ### Estructura
 
 ```text
-src/                 React: panel, clientes, contratos, facturas, catálogo y negocio
+src/                 React: panel, análisis y metas, clientes, contratos, facturas, catálogo y negocio
+src/lib/             Avisos, análisis, búsqueda y preferencias (funciones puras, probadas)
 shared/              Dominio, actividades oficiales, papel, plantillas y cálculo decimal
 server/              Express, SQLite, validación, cuentas/sesiones/roles y exportadores PDF/DOCX/XLSX
 public/              Iconos, manifiesto PWA y página de desconexión
-scripts/             Copia SQLite, recuperación de acceso e iconos reproducibles
+scripts/             Copia SQLite, recuperación de acceso, iconos y tema oscuro derivado
 tests/               Pruebas de dominio, HTTP, documentos y navegador
 ```
 
-API principal: `/api/health`, `/api/session`, `/api/login` (`username`, `password`), `/api/logout`, `/api/setup`, `/api/me/password`, `/api/users`, `/api/users/:id`, `/api/users/:id/sessions`, `/api/security-events`, `/api/dashboard`, `/api/supplier`, `/api/clients`, `/api/contracts`, `/api/catalog`, `/api/invoices`, `/api/invoices/:id/sign`, `/api/invoices/:id/status`, `/api/invoices/:id/integrity`, `/api/invoices/:id/events` y `/api/invoices/:id/export/{pdf|docx|xlsx}?paper=A4&orientation=portrait`.
+API principal: `/api/health`, `/api/session`, `/api/login` (`username`, `password`), `/api/logout`, `/api/setup`, `/api/me/password`, `/api/users`, `/api/users/:id`, `/api/users/:id/sessions`, `/api/security-events`, `/api/dashboard`, `/api/supplier`, `/api/goals`, `/api/clients`, `/api/contracts`, `/api/catalog`, `/api/invoices`, `/api/invoices/:id/sign`, `/api/invoices/:id/status`, `/api/invoices/:id/integrity`, `/api/invoices/:id/events` y `/api/invoices/:id/export/{pdf|docx|xlsx}?paper=A4&orientation=portrait`.
