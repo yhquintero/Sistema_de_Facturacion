@@ -25,7 +25,7 @@ function Write-PrivateJson([string] $Path, $Value) {
     try { [IO.File]::WriteAllText($temporary, (ConvertTo-Json -InputObject $Value -Depth 8), [Text.UTF8Encoding]::new($false)); Set-PrivatePermissions $temporary; [IO.File]::Move($temporary, $Path, $true) } finally { if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force } }
 }
 function Get-NodePath {
-    $node = (Get-Command node -CommandType Application -ErrorAction Stop).Source
+    $node = (Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
     $version = (& $node --version).TrimStart('v')
     if ([version]$version -lt [version]'22.13.0') { throw 'Instala Node.js >=22.13 desde una fuente oficial.' }
     return $node
@@ -90,7 +90,7 @@ function Initialize-Control($Mode, $Domain, $LanAddress, $HttpsPort, $InternalPo
     if (Get-Config) { throw 'Ya existe configuración. No se sobrescriben datos ni claves. Usa Start o edita una copia revisada de control.json.' }
     if ($Mode -eq 'Public') { $HttpsPort = 443 }
     if ($HttpsPort -eq $InternalPort) { throw 'Los puertos HTTPS e interno deben ser distintos.' }
-    $caddy = (Get-Command caddy -CommandType Application -ErrorAction Stop).Source
+    $caddy = (Get-Command caddy -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
     if ($Mode -eq 'Public') {
         if (!$Domain) { $Domain = Read-Host 'Dominio público propio (solo nombre DNS)' }
         if ($Domain -notmatch '^(?=.{1,253}$)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$' -or $Domain -match '\.(local|localhost|test|invalid)$') { throw 'Indica un dominio DNS propio válido, sin ruta ni protocolo.' }

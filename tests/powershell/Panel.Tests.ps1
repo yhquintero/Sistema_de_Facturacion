@@ -34,7 +34,11 @@ try {
     } $state
     Write-Host 'PASS: AST PowerShell, módulo, DACL privada, JSON atómico e identidad de proceso.'
     if ($Integration) {
-        $caddy = (Get-Command caddy -CommandType Application -ErrorAction Stop).Source
+        # Hosted Windows has both setup-node and a preinstalled Node on PATH.
+        $expectedNode = (Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+        $selectedNode = & $module { Get-NodePath }
+        Assert-True ($selectedNode -is [string] -and $selectedNode -eq $expectedNode) 'Node debe resolverse a una sola ruta respetando la prioridad PATH.'
+        $caddy = (Get-Command caddy -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
         $port = 3143; $httpsPort = 8543
         $configFile = Join-Path $state 'control.json'
         $config = & $module {
