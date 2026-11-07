@@ -25,6 +25,13 @@ try {
             $message = ''
             try { Get-CaddyPath | Out-Null } catch { $message = $_.Exception.Message }
             if ($message -notmatch 'Caddy no está instalado o no está en PATH' -or $message -notmatch 'winget install --id CaddyServer\.Caddy --exact --source winget' -or $message -notmatch 'caddy version') { throw 'Falta diagnóstico accionable para Caddy ausente.' }
+            # Con PATH vacío debe fallar por Caddy antes de intentar Node/npm o pedir secretos.
+            foreach ($action in @('Start','Menu','Initialize')) {
+                $message = ''
+                try { Invoke-NexoControl -Action $action -InstallDependencies -StateDirectory (Join-Path $State $action) } catch { $message = $_.Exception.Message }
+                if ($message -notmatch 'Caddy no está instalado o no está en PATH') { throw "No se comprobó Caddy antes de instalar dependencias para $action : $message" }
+                if (Test-Path (Join-Path $State "$action/control.json")) { throw 'No se debe crear configuración sin Caddy.' }
+            }
         } finally { $env:PATH = $originalPath }
         Set-PrivatePermissions $State
         $file = Join-Path $State 'atomic.json'

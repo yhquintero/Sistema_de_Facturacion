@@ -28,7 +28,17 @@ Get-Command caddy -CommandType Application
 caddy version
 ```
 
+Si el comando sin `--source winget` falló, Caddy **no quedó instalado**: repítelo con la fuente explícita y espera una confirmación de instalación correcta antes de continuar. Si winget informa que ya está instalado pero `caddy version` sigue sin funcionar tras abrir una terminal nueva, comprueba `winget list --id CaddyServer.Caddy --exact --source winget` y revisa el `PATH` del usuario o la carpeta del ejecutable; no reinstales las dependencias npm para resolver un problema de PATH.
+
 Si no utilizas winget, descarga la distribución de tu arquitectura desde las [publicaciones oficiales](https://github.com/caddyserver/caddy/releases), contrasta el checksum del archivo con el manifiesto de esa versión, extrae `caddy.exe` en una carpeta estable y añade esa carpeta al `PATH` del usuario. No uses una ruta temporal ni desactives HTTPS para resolver este error.
+
+### Avisos npm durante la instalación
+
+`added ... packages`, `found 0 vulnerabilities` y una salida correcta de `npm ci` indican que la instalación npm terminó; no significan que Caddy esté instalado. Los avisos `deprecated` corresponden a dependencias que requieren seguimiento, pero no son el error de Caddy. No los ocultes forzando la resolución de dependencias.
+
+Si tu versión de npm muestra `allow-scripts` para esbuild, revisa los scripts pendientes con las opciones de aprobación indicadas por esa versión de npm antes de autorizarlos. No apruebes todos los scripts indiscriminadamente ni desactives globalmente las protecciones. Después comprueba `npm run build`; cualquier fallo de esbuild debe investigarse por separado del requisito Caddy.
+
+El panel comprueba Caddy antes de ejecutar `npm ci` cuando debe crear la primera configuración (`Start`, `Menu` o `Initialize`), para evitar reinstalaciones innecesarias si falta el proxy.
 
 ### Conflicto npm entre Vite y el plugin React
 
