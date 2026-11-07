@@ -9,7 +9,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env) {
   const production = env.NODE_ENV === 'production' || process.argv.includes('--production');
   const tlsMode = env.TLS_MODE || (production ? 'proxy' : 'off');
   if (!['off', 'proxy', 'direct'].includes(tlsMode)) throw new Error('TLS_MODE debe ser off, proxy o direct.');
-  const port = Number(env.PORT || (tlsMode === 'direct' ? 8443 : 3000));
+  const port = Number(env.PORT || (tlsMode === 'direct' ? 8450 : 3000));
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT no es válido.');
   const redirectPort = env.REDIRECT_HTTP_PORT ? Number(env.REDIRECT_HTTP_PORT) : 0;
   if (env.REDIRECT_HTTP_PORT && (!Number.isInteger(redirectPort) || redirectPort < 1 || redirectPort > 65535 || redirectPort === port || tlsMode !== 'direct')) throw new Error('REDIRECT_HTTP_PORT exige TLS directo y un puerto distinto válido.');

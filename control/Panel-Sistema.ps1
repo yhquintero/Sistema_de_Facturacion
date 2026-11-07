@@ -6,15 +6,18 @@ Inicia y administra Nexo: web compilada + API + tiempo real + proxy HTTPS.
 -InstallDependencies ejecuta npm ci con reintentos y reutiliza la caché de npm si la conexión se corta.
 No omite ExecutionPolicy, no descarga ejecutables ni abre puertos o instala CA sin una acción explícita.
 La primera ejecución pide una frase de acceso sin eco; no se pasa por argumentos ni se guarda en claro.
+Nexo usa https://localhost:8450 por defecto y no inicia si su puerto está ocupado (NovaGest usa 8443).
+-Action SetPort -HttpsPort N mueve una instalación existente sin tocar datos, cuentas ni copias.
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Start','Menu','Initialize','Stop','Restart','Status','Backup','ExportService','TrustLocalCA','OpenLanFirewall','RemoveLanFirewall','ApproveCaddy')]
+    [ValidateSet('Start','Menu','Initialize','Stop','Restart','Status','Backup','ExportService','TrustLocalCA','OpenLanFirewall','RemoveLanFirewall','ApproveCaddy','SetPort')]
     [string] $Action = 'Start',
     [ValidateSet('Local','LAN','Public')] [string] $Mode = 'Local',
     [string] $Domain,
     [string] $LanAddress,
-    [ValidateRange(1024,65535)] [int] $HttpsPort = 8443,
+    # 8450 por defecto: NovaGest (inventario) usa 8443 y 8444 en el mismo PC. Cambiar después: -Action SetPort -HttpsPort N.
+    [ValidateRange(1024,65535)] [int] $HttpsPort = 8450,
     [ValidateRange(1024,65535)] [int] $InternalPort = 3000,
     [string] $StateDirectory,
     [string] $ExportPath,

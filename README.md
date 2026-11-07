@@ -167,6 +167,8 @@ pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action Menu
 pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action Stop
 pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action Backup
 pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action ExportService
+# Cambiar el puerto de una instalación existente (por defecto 8450; NovaGest usa 8443):
+pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action SetPort -HttpsPort 8450
 ```
 
 - El modo elegido se conserva tras inicializar.
@@ -329,6 +331,12 @@ Las copias `.nxb` se descifran con `npm run backup:decrypt` **a un archivo nuevo
 <summary><b>La instalación falla con <code>ECONNRESET</code> o «network».</b></summary>
 
 Es un corte de la conexión con el registro de npm, no un error del proyecto. `-InstallDependencies` reintenta solo y guarda cada paquete descargado en la caché, así que **volver a ejecutar el mismo comando continúa desde donde se quedó**. Si el registro oficial no responde bien desde tu red, prueba un espejo solo para esa instalación: `-InstallDependencies -NpmRegistry https://registry.npmmirror.com/`. Cada paquete se sigue verificando con la huella del `package-lock.json`. Más opciones (proxy, equipo sin Internet) en [operación segura](docs/OPERACION-SEGURA.md#errores-de-red-durante-npm-ci-econnreset-etimedout-eai_again).
+</details>
+
+<details>
+<summary><b>Al abrir Nexo aparece NovaGest u otra aplicación.</b></summary>
+
+Las dos estaban usando el mismo puerto, 8443. Nexo ahora usa `https://localhost:8450` por defecto, y el panel se niega a iniciar si el puerto está ocupado, diciendo qué programa lo usa. Para mover una instalación existente sin perder nada: `pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action SetPort -HttpsPort 8450`, luego `-Action TrustLocalCA` (una vez) y `-Action Menu`. Detalles y cómo limpiar la pantalla guardada de la otra aplicación en [operación segura](docs/OPERACION-SEGURA.md#convivencia-con-novagest-u-otra-app-en-el-mismo-puerto).
 </details>
 
 <details>
