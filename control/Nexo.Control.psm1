@@ -251,13 +251,14 @@ function Start-Control($Config, [switch] $NoBrowser, [switch] $NoBuild) {
             $share = Join-Path $script:State 'share'; New-Item -ItemType Directory -Path $share -Force | Out-Null; Set-PrivatePermissions $share
             Copy-Item -LiteralPath $Config.caFile -Destination (Join-Path $share 'Nexo-CA-PUBLICA.crt') -Force
             Write-Host "CA pública para confiar explícitamente en PC/móvil: $(Join-Path $share 'Nexo-CA-PUBLICA.crt')"
-            Write-Host "SHA-256: $((Get-FileHash -LiteralPath $Config.caFile -Algorithm SHA256).Hash)"
+            Write-Host "Huella SHA-256 del certificado raíz: $((Get-LocalCAInfo $Config).Sha256)"
             Write-Warning 'El navegador y cada móvil deben confiar por separado en esta CA, tras comprobar la huella. No ignores advertencias TLS. No compartas caddy-storage ni claves privadas.'
             if (!(Test-LocalCATrusted $Config)) {
                 Write-Warning "Este Windows todavía NO confía en la CA de Nexo. Hasta hacerlo, el navegador mostrará un aviso de seguridad en $($Config.origin) y, si en esa dirección se usó antes otra aplicación instalable (PWA), puede mostrar su pantalla guardada en lugar de Nexo. Confía en ella tras comparar la huella: pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action TrustLocalCA (Firefox usa su propio almacén de certificados)."
             }
         }
         Write-Host "WEB + SERVIDOR + TIEMPO REAL: $($Config.origin)"
+        Write-Host "Acceso: usuario «admin» con la frase que escribiste al inicializar (o tu usuario personal). ¿No la recuerdas? Opción [6] del menú o -Action ResetPassword."
         if (!$NoBrowser) { Start-Process $Config.origin | Out-Null }
     } catch { Stop-Control; throw }
 }
@@ -335,10 +336,59 @@ function Set-ControlPort($Config, [int] $HttpsPort, [int] $InternalPort) {
     Write-Host 'Inicia Nexo con: pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action Menu'
     return $Config
 }
+# Huellas del certificado RAÍZ tal como las muestran los navegadores (SHA-256 en minúsculas, «Huellas digitales»)
+# y Windows al instalarlo (SHA-1, «Huella digital»). No es el hash del archivo .crt, que no aparece en ningún diálogo.
+function Get-LocalCAInfo($Config) {
+    $certificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new([string]$Config.caFile)
+    return [PSCustomObject]@{
+        Certificate = $certificate; Subject = $certificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false); NotAfter = $certificate.NotAfter
+        Sha256 = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($certificate.RawData)).ToLowerInvariant(); Sha1 = $certificate.Thumbprint
+    }
+}
 function Test-LocalCATrusted($Config) {
     if (!$IsWindows -or $Config.mode -eq 'Public' -or !(Test-Path -LiteralPath $Config.caFile)) { return $true }
-    try { $thumbprint = (Get-PfxCertificate -FilePath $Config.caFile).Thumbprint } catch { return $true }
+    try { $thumbprint = (Get-LocalCAInfo $Config).Sha1 } catch { return $true }
     return @(Get-ChildItem Cert:\CurrentUser\Root, Cert:\LocalMachine\Root -ErrorAction SilentlyContinue | Where-Object Thumbprint -eq $thumbprint).Count -gt 0
+}
+function Get-BrowserRestartHint($Config) {
+    $share = Join-Path $script:State 'share\Nexo-CA-PUBLICA.crt'
+    return @"
+Siguiente paso: cierra el navegador POR COMPLETO para que vuelva a leer los certificados de Windows.
+  Edge:   escribe edge://restart en la barra de direcciones y pulsa Intro.
+  Chrome: escribe chrome://restart y pulsa Intro.
+Después abre $($Config.origin): debe verse el candado y no «No seguro».
+Firefox usa su propio almacén: Ajustes > Privacidad y seguridad > Certificados > Ver certificados > Autoridades > Importar > $share (marca «Confiar en esta CA para identificar sitios web»).
+"@
+}
+function Invoke-TrustLocalCA($Config) {
+    if (!$IsWindows -or $Config.mode -eq 'Public') { throw 'Esta acción es para la CA local en el almacén CurrentUser de Windows.' }
+    if (!(Test-Path -LiteralPath $Config.caFile)) { throw 'Todavía no existe la CA local de Nexo: se crea en el primer inicio. Ejecuta -Action Menu (o Start) una vez y repite esta acción.' }
+    $ca = Get-LocalCAInfo $Config
+    Write-Host "Certificado raíz de Nexo: $($ca.Subject) (válido hasta $($ca.NotAfter.ToString('yyyy-MM-dd')))"
+    Write-Host "  Huella SHA-256: $($ca.Sha256)"
+    Write-Host "  Huella SHA-1:   $($ca.Sha1)   <- la «Huella digital» que mostrará Windows"
+    if (Test-LocalCATrusted $Config) {
+        Write-Host 'Este Windows ya confía en la CA de Nexo. No hace falta repetirlo.' -ForegroundColor Green
+    } else {
+        Write-Host 'Esta CA la generó Caddy en este equipo y solo sirve para Nexo. Al escribir CONFIAR, Windows mostrará una «Advertencia de seguridad» con su huella digital: comprueba que coincide con la SHA-1 de arriba y pulsa «Sí».'
+        if ((Read-Host 'Escribe CONFIAR para continuar') -cne 'CONFIAR') { throw 'Confianza cancelada. No se cambió nada.' }
+        $store = [Security.Cryptography.X509Certificates.X509Store]::new('Root', 'CurrentUser')
+        try { $store.Open('ReadWrite'); $store.Add($ca.Certificate) } catch { throw "Windows no instaló el certificado (¿se pulsó «No» en el aviso?). Repite la acción y pulsa «Sí». Detalle: $($_.Exception.Message)" } finally { $store.Close() }
+        if (!(Test-LocalCATrusted $Config)) { throw 'El certificado no aparece en el almacén de confianza de este usuario. Repite la acción y pulsa «Sí» en el aviso de Windows.' }
+        Write-Host 'Listo: este usuario de Windows confía en la CA de Nexo.' -ForegroundColor Green
+    }
+    Write-Host (Get-BrowserRestartHint $Config)
+}
+# Recuperación de acceso desde el panel, con la base y el entorno de ESTA instalación (sin variables a mano).
+$script:UserNamePattern = '^[a-z0-9][a-z0-9._-]{2,39}$'
+function Reset-AccountPassword($Config, [string] $UserName = 'admin') {
+    $UserName = $UserName.Trim().ToLowerInvariant()
+    if ($UserName -cnotmatch $script:UserNamePattern) { throw 'Usuario no válido: 3 a 40 caracteres en minúscula (letras, números, punto, guion o guion bajo), empezando por letra o número.' }
+    $arguments = @('--disable-warning=ExperimentalWarning','--import','tsx','scripts/reset-password.ts',$UserName)
+    if ($UserName -eq 'admin') { $arguments += '--admin' }
+    Write-Host "Se genera una contraseña temporal para «$UserName». Aparece UNA sola vez: anótala sin compartirla por chat ni correo."
+    Invoke-Node $arguments (Get-NodeEnvironment $Config)
+    Write-Host "Entra en $($Config.origin) con el usuario «$UserName» y esa contraseña temporal. Nexo te pedirá enseguida una contraseña nueva de 14 o más caracteres."
 }
 
 # --- Dependencias npm -------------------------------------------------------
@@ -460,8 +510,10 @@ function Install-Dependencies([string] $Registry, [int] $MaxAttempts = 4, [int[]
 
 function Invoke-NexoControl {
     [CmdletBinding()]
-    param([string]$Action = 'Start',[string]$Mode = 'Local',[string]$Domain,[string]$LanAddress,[int]$HttpsPort = 8450,[int]$InternalPort = 3000,[string]$StateDirectory,[string]$ExportPath,[switch]$InstallDependencies,[string]$NpmRegistry,[switch]$NoBrowser,[switch]$NoBuild)
+    param([string]$Action = 'Start',[string]$Mode = 'Local',[string]$Domain,[string]$LanAddress,[int]$HttpsPort = 8450,[int]$InternalPort = 3000,[string]$StateDirectory,[string]$ExportPath,[switch]$InstallDependencies,[string]$NpmRegistry,[string]$User,[switch]$NoBrowser,[switch]$NoBuild)
     if ($NpmRegistry -and !$InstallDependencies) { throw 'NpmRegistry solo se usa junto con -InstallDependencies.' }
+    if ($User -and $Action -ne 'ResetPassword') { throw 'User solo se usa con -Action ResetPassword.' }
+    if ($User -and $User.Trim().ToLowerInvariant() -cnotmatch $script:UserNamePattern) { throw 'Usuario no válido: 3 a 40 caracteres en minúscula (letras, números, punto, guion o guion bajo), empezando por letra o número.' }
     $script:State = if ($StateDirectory) { [IO.Path]::GetFullPath($StateDirectory) } else { Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'NexoFacturacion' }
     if ($script:State.Contains('"') -or $script:State -match '[\r\n]') { throw 'Directorio de estado no admitido.' }
     New-Item -ItemType Directory -Path $script:State -Force | Out-Null; Set-PrivatePermissions $script:State
@@ -472,7 +524,7 @@ function Invoke-NexoControl {
     $config = Get-Config
     # Fallar antes de npm ci y antes de pedir secretos si falta el proxy en el primer inicio.
     if ($Action -eq 'Initialize' -or (!$config -and $Action -in @('Start','Menu'))) { Get-CaddyPath | Out-Null }
-    $nodeActions = @('Start','Menu','Initialize','Restart','Backup','ExportService')
+    $nodeActions = @('Start','Menu','Initialize','Restart','Backup','ExportService','ResetPassword')
     if ($Action -in $nodeActions -or $InstallDependencies) { Get-NodePath | Out-Null }
     if ($InstallDependencies) {
         Push-Location $script:Repository
@@ -496,12 +548,8 @@ Si la descarga falla por la red, el mensaje de ese comando explica cómo reinten
         'Restart' { Stop-Control; Start-Control $config -NoBrowser:$NoBrowser -NoBuild:$NoBuild }
         'Status' { foreach ($record in (Read-ProcessState)) { [PSCustomObject]@{ Servicio = $record.role; PID = $record.processId; PropioYActivo = [bool](Get-OwnedProcess $record); Origen = $config.origin } } }
         'Backup' { Invoke-Node @('--import','tsx','scripts/backup.ts') (Get-NodeEnvironment $config) }
-        'TrustLocalCA' {
-            if (!$IsWindows -or $config.mode -eq 'Public') { throw 'Esta acción es para la CA local en el almacén CurrentUser de Windows.' }
-            Write-Host "Huella SHA-256: $((Get-FileHash -LiteralPath $config.caFile -Algorithm SHA256).Hash)"
-            if ((Read-Host 'Escribe CONFIAR tras verificar esta CA propia') -cne 'CONFIAR') { throw 'Confianza cancelada.' }
-            Import-Certificate -FilePath $config.caFile -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
-        }
+        'TrustLocalCA' { Invoke-TrustLocalCA $config }
+        'ResetPassword' { Reset-AccountPassword $config $(if ($User) { $User } else { 'admin' }) }
         'SetPort' {
             $newHttps = if ($PSBoundParameters.ContainsKey('HttpsPort')) { $HttpsPort } else { 0 }
             $newInternal = if ($PSBoundParameters.ContainsKey('InternalPort')) { $InternalPort } else { 0 }
@@ -514,13 +562,15 @@ Si la descarga falla por la red, el mensaje de ese comando explica cómo reinten
         'Menu' {
             Start-Control $config -NoBrowser:$NoBrowser -NoBuild:$NoBuild
             do {
-                Write-Host "`n[1] Estado  [2] Copia cifrada  [3] Exportar servicio  [4] Detener  [5] Salir (mantener servicios)"
+                Write-Host "`n[1] Estado  [2] Copia cifrada  [3] Exportar servicio  [4] Detener  [5] Salir (mantener servicios)  [6] Contraseña temporal de admin  [7] Confiar en el certificado"
                 $choice = Read-Host 'Acción'
                 switch ($choice) {
                     '1' { Write-Host "Dirección de Nexo: $($config.origin)"; foreach ($record in (Read-ProcessState)) { Write-Host "$($record.role): $([bool](Get-OwnedProcess $record))" } }
                     '2' { Invoke-Node @('--import','tsx','scripts/backup.ts') (Get-NodeEnvironment $config) }
                     '3' { Invoke-Node @('--import','tsx','scripts/package-service.ts') }
                     '4' { Stop-Control }
+                    '6' { try { Reset-AccountPassword $config 'admin' } catch { Write-Warning $_.Exception.Message } }
+                    '7' { try { Invoke-TrustLocalCA $config } catch { Write-Warning $_.Exception.Message } }
                 }
             } while ($choice -ne '5')
         }

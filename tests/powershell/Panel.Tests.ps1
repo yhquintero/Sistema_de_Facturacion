@@ -123,9 +123,26 @@ try {
             $message = ''; try { Set-ControlPort $public 8450 0 | Out-Null } catch { $message = $_.Exception.Message }
             if ($message -notmatch '443') { throw 'SetPort debe rechazar el modo Public.' }
         } finally { $script:State = $originalState; $script:ConfigFile = $originalConfigFile; $script:ProcessFile = $originalProcessFile }
+        # Huellas de la CA: las que muestran el navegador (SHA-256 del certificado) y Windows (SHA-1), no el hash del archivo.
+        $key = [Security.Cryptography.ECDsa]::Create()
+        $request = [Security.Cryptography.X509Certificates.CertificateRequest]::new('CN=Prueba Nexo Root', $key, [Security.Cryptography.HashAlgorithmName]::SHA256)
+        $root = $request.CreateSelfSigned([DateTimeOffset]::UtcNow.AddMinutes(-1), [DateTimeOffset]::UtcNow.AddDays(1))
+        $caFile = Join-Path $State 'root.crt'
+        Set-Content -LiteralPath $caFile -Value ("-----BEGIN CERTIFICATE-----`n" + [Convert]::ToBase64String($root.RawData, 'InsertLineBreaks') + "`n-----END CERTIFICATE-----") -Encoding ascii
+        $info = Get-LocalCAInfo @{ caFile = $caFile }
+        $expected = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($root.RawData)).ToLowerInvariant()
+        if ($info.Sha256 -cne $expected -or $info.Sha1 -ne $root.Thumbprint -or $info.Subject -ne 'Prueba Nexo Root') { throw "Huellas de la CA incorrectas: $($info | ConvertTo-Json -Compress -Depth 1)" }
+        if ($info.Sha256 -eq (Get-FileHash -LiteralPath $caFile -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'La huella debe ser la del certificado, no la del archivo.' }
+        # ResetPassword: valida el usuario antes de tocar Node o la base, y -User solo vale con esa acción.
+        foreach ($bad in @('--admin', 'a', 'Usuario con espacios', '-x')) {
+            $message = ''; try { Invoke-NexoControl -Action ResetPassword -User $bad -StateDirectory (Join-Path $State 'reset') } catch { $message = $_.Exception.Message }
+            if ($message -notmatch 'Usuario no válido') { throw "Usuario no válido aceptado ($bad): $message" }
+        }
+        $message = ''; try { Invoke-NexoControl -Action Status -User admin -StateDirectory (Join-Path $State 'reset') } catch { $message = $_.Exception.Message }
+        if ($message -notmatch 'solo se usa con -Action ResetPassword') { throw "User fuera de ResetPassword debe rechazarse: $message" }
         # Nunca llamar Stop-Control con el PID de este runner.
     } $state
-    Write-Host 'PASS: AST PowerShell, módulo, npm ci con reintentos y diagnóstico, puertos ocupados y SetPort, DACL privada, JSON atómico e identidad de proceso.'
+    Write-Host 'PASS: AST PowerShell, módulo, npm ci con reintentos y diagnóstico, puertos ocupados y SetPort, huellas de la CA, validación de ResetPassword, DACL privada, JSON atómico e identidad de proceso.'
     if ($Integration) {
         # Hosted Windows has both setup-node and a preinstalled Node on PATH.
         $expectedNode = (Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
@@ -160,10 +177,15 @@ try {
         Assert-True ((($probe.Content | ConvertFrom-Json).ok) -eq $true) 'No está saludable.'
         Invoke-NexoControl -Action Backup -StateDirectory $state
         Assert-True (@(Get-ChildItem (Join-Path $state 'data/backups') -Filter '*.nxb').Count -eq 1) 'Falta respaldo cifrado.'
+        # Recuperación de acceso desde el panel con la base de esta instalación: admin recibe una contraseña temporal;
+        # un usuario inexistente no se crea si no es admin.
+        Invoke-NexoControl -Action ResetPassword -StateDirectory $state
+        $message = ''; try { Invoke-NexoControl -Action ResetPassword -User 'nadie.inexistente' -StateDirectory $state } catch { $message = $_.Exception.Message }
+        Assert-True ($message -match 'código 1') "ResetPassword no debe crear usuarios que no sean admin: $message"
         Invoke-NexoControl -Action Restart -StateDirectory $state -NoBuild -NoBrowser
         Invoke-NexoControl -Action Stop -StateDirectory $state
         Assert-True (!(Test-Path (Join-Path $state 'processes.json'))) 'El manifiesto no se limpió.'
-        Write-Host 'PASS: build existente + backend + Caddy local + HTTPS con CA verificada + backup + restart + stop.'
+        Write-Host 'PASS: build existente + backend + Caddy local + HTTPS con CA verificada + backup + contraseña temporal + restart + stop.'
     }
 } finally {
     if (Test-Path (Join-Path $state 'processes.json')) { Invoke-NexoControl -Action Stop -StateDirectory $state }

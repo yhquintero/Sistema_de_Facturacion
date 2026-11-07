@@ -6,6 +6,7 @@ Todos los cambios relevantes de Nexo se documentan aquí. El formato sigue [Keep
 
 ### Corregido
 
+- **«No seguro» en `https://localhost:8450`:** `TrustLocalCA` muestra ahora las huellas que realmente aparecen en el navegador (SHA-256 del certificado raíz) y en el aviso de Windows (SHA-1), no el hash del archivo. Explica el aviso de Windows y comprueba que el certificado quedó instalado. Si ya estaba instalado, lo dice. Indica también cómo reiniciar Edge o Chrome para que dejen de mostrar «No seguro», y cómo importarlo en Firefox.
 - **Nexo abría la pantalla de inicio de sesión de NovaGest:** las dos aplicaciones usaban `https://localhost:8443` en el mismo PC. Nexo usa ahora **8450** por defecto (también en `TLS_MODE=direct`).
 - El panel comprueba antes de iniciar que el puerto HTTPS y el interno estén libres. Si están ocupados, dice qué programa los usa (nombre, PID, dirección) y cómo resolverlo.
 - La verificación HTTPS exige el identificador de esta instancia de Nexo a través de Caddy. Otro servicio que conteste en ese puerto ya no se da por bueno.
@@ -19,6 +20,9 @@ Todos los cambios relevantes de Nexo se documentan aquí. El formato sigue [Keep
 
 ### Añadido
 
+- **Primer acceso guiado:** guía [docs/PRIMER-ACCESO.md](docs/PRIMER-ACCESO.md). Al iniciar, el panel recuerda con qué usuario entrar.
+- `-Action ResetPassword [-User usuario]` y opción **[6]** del menú: contraseña temporal con la base de esa instalación, sin variables de entorno a mano. Con `admin`, la cuenta se reactiva o se crea.
+- Opción **[7]** del menú para confiar en el certificado sin salir del menú.
 - `-Action SetPort -HttpsPort N [-InternalPort N]` mueve una instalación existente a otro puerto sin tocar datos, cuentas, copias ni la confianza en la CA.
 - La opción «Estado» del menú muestra la dirección de Nexo.
 - `-NpmRegistry https://…` para usar un registro espejo solo durante la instalación. Cada paquete se sigue verificando con la huella del `package-lock.json`.
