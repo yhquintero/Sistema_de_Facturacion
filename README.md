@@ -326,6 +326,12 @@ Las copias `.nxb` se descifran con `npm run backup:decrypt` **a un archivo nuevo
 </details>
 
 <details>
+<summary><b>La instalación falla con <code>ECONNRESET</code> o «network».</b></summary>
+
+Es un corte de la conexión con el registro de npm, no un error del proyecto. `-InstallDependencies` reintenta solo y guarda cada paquete descargado en la caché, así que **volver a ejecutar el mismo comando continúa desde donde se quedó**. Si el registro oficial no responde bien desde tu red, prueba un espejo solo para esa instalación: `-InstallDependencies -NpmRegistry https://registry.npmmirror.com/`. Cada paquete se sigue verificando con la huella del `package-lock.json`. Más opciones (proxy, equipo sin Internet) en [operación segura](docs/OPERACION-SEGURA.md#errores-de-red-durante-npm-ci-econnreset-etimedout-eai_again).
+</details>
+
+<details>
 <summary><b>¿Puedo actualizar sin perder datos?</b></summary>
 
 Sí. Las actualizaciones migran la base existente y conservan cuentas, contraseñas y roles. No borres ni recrees la base para actualizar.

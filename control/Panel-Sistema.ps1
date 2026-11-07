@@ -3,6 +3,7 @@
 .SYNOPSIS
 Inicia y administra Nexo: web compilada + API + tiempo real + proxy HTTPS.
 .DESCRIPTION
+-InstallDependencies ejecuta npm ci con reintentos y reutiliza la caché de npm si la conexión se corta.
 No omite ExecutionPolicy, no descarga ejecutables ni abre puertos o instala CA sin una acción explícita.
 La primera ejecución pide una frase de acceso sin eco; no se pasa por argumentos ni se guarda en claro.
 #>
@@ -18,6 +19,8 @@ param(
     [string] $StateDirectory,
     [string] $ExportPath,
     [switch] $InstallDependencies,
+    # Registro npm alternativo (https) solo para esta instalación; los paquetes se verifican con package-lock.json.
+    [string] $NpmRegistry,
     [switch] $NoBrowser,
     [switch] $NoBuild
 )
