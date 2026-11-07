@@ -73,6 +73,6 @@ La [CI de `d43ec7d`](https://github.com/yhquintero/Sistema_de_Facturacion/action
 2. Hospedaje/replicación permitidos, responsable/privacidad/derechos/conservación/gestiones legales aprobados.
 3. Certificado/nombre/cadena, DNS/ruta/red/firewall, puerto interno cerrado y renovación comprobados desde otro equipo/móvil/red.
 4. Restauración con datos representativos y RPO/RTO **medidos**, no solamente un backup creado.
-5. Revisar cuentas individuales/roles mínimos ya implementados y añadir MFA según riesgo antes de acceso remoto sensible; no compartir credenciales ni dar cuentas internas como portal a clientes.
+5. Revisar cuentas individuales/roles mínimos ya implementados y exigir la verificación en dos pasos (`REQUIRE_ADMIN_2FA=true`, y en las demás cuentas según riesgo) antes de acceso remoto sensible; no compartir credenciales ni dar cuentas internas como portal a clientes.
 6. Vector y modelos/instructivos/régimen/ejercicio aprobados por titular/asesor; dejar DJ-08 oficial bloqueada hasta completar sus pruebas de aceptación.
 7. Revisión independiente y retest de riesgo proporcional al negocio; ningún umbral de tests o `audit=0` equivale a homologación/certificación.

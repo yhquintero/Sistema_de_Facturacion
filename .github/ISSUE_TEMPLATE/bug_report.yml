@@ -1,0 +1,85 @@
+name: "🐞 Informar de un error"
+description: "Algo no funciona como se espera en la Web, el servidor, los documentos o el panel."
+title: "[Error] "
+labels: ["error"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gracias por ayudar a mejorar Nexo. **No incluyas datos reales** (nombres, NIT, carnés, importes, firmas,
+        contraseñas, códigos de verificación ni claves de copias). Usa los datos de demostración o anonimízalos.
+
+        ¿Es un problema de seguridad? **No abras un issue público:** usa el [aviso privado](https://github.com/yhquintero/Sistema_de_Facturacion/security/advisories/new).
+  - type: dropdown
+    id: area
+    attributes:
+      label: Parte afectada
+      multiple: true
+      options:
+        - Web (pantallas, navegación, tema)
+        - Facturas y documentos (PDF, Word, Excel)
+        - Firma y conformidad
+        - Clientes, contratos o catálogo
+        - Fiscal · Cuba / ONAT
+        - Cuentas, roles, 2FA o sesiones
+        - Copias de seguridad
+        - Panel PowerShell / HTTPS / Caddy
+        - PWA en el móvil
+        - Otra
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: Qué pasó
+      description: Describe el error y lo que esperabas que ocurriera.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Pasos para reproducirlo
+      placeholder: |
+        1. Entra en «Facturas»
+        2. Abre FAC-2026-0001
+        3. Pulsa «Descargar PDF»
+        4. Aparece…
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Versión o commit
+      description: "Aparece en CHANGELOG.md o con `git rev-parse --short HEAD`."
+      placeholder: "1.1.0 · 4bec42f"
+  - type: dropdown
+    id: env
+    attributes:
+      label: Dónde ocurre
+      multiple: true
+      options:
+        - Windows (panel PowerShell)
+        - Linux / Docker
+        - Navegador de escritorio
+        - Móvil Android
+        - iPhone / iPad
+  - type: input
+    id: browser
+    attributes:
+      label: Navegador y sistema
+      placeholder: "Chrome 141 en Windows 11 · Safari en iOS 26"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Mensajes o registro
+      description: "Mensaje en pantalla o fragmento del registro del servidor (revisa que no tenga datos personales)."
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Comprobaciones
+      options:
+        - label: He revisado que no haya un issue abierto con el mismo problema.
+          required: true
+        - label: El informe no contiene datos reales, contraseñas ni claves.
+          required: true

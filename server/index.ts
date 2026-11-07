@@ -28,7 +28,12 @@ async function bootstrap() {
   const { hasUsers } = await import('./users');
   // A server restart/recovery invalidates all saved sessions, as before hardening.
   db.prepare('DELETE FROM user_sessions').run();
-  const app = createApp({ config });
+  const { scheduleDailyBackups } = await import('./backups'); const { recordSecurityEvent } = await import('./users');
+  // Copias diarias cifradas en producción (BACKUP_AUTO=false las desactiva). Sin clave no se crean copias legibles.
+  const scheduledBackups = config.production && process.env.BACKUP_AUTO !== 'false' && !!config.backupKeyFile;
+  if (config.production && process.env.BACKUP_AUTO !== 'false' && !config.backupKeyFile) console.warn('[Nexo] Aviso: sin BACKUP_KEY_FILE no hay copias automáticas. Genera la clave con npm run backup:key -- <archivo>.');
+  const app = createApp({ config, scheduledBackups });
+  const stopBackups = scheduledBackups ? scheduleDailyBackups(info => recordSecurityEvent('backup_created', { id: '', name: 'Copia automática' }, { name: info.name }, { encrypted: true, size: info.size, removed: info.removed.length })) : () => {};
   const server = config.tlsMode === 'direct' ? https.createServer(loadTlsOptions(config), app) : http.createServer(app);
   server.headersTimeout = 15_000; server.requestTimeout = 30_000; server.keepAliveTimeout = 5_000; server.maxConnections = 300;
   let closeVite: (() => Promise<void>) | undefined;
@@ -53,7 +58,7 @@ async function bootstrap() {
     await new Promise<void>((resolve, reject) => { redirect!.once('error', reject); redirect!.listen(redirectPort, config.host, resolve); });
   }
   let closing = false;
-  const shutdown = () => { if (closing) return; closing = true; if (config.shutdownFile) { fs.unwatchFile(config.shutdownFile); try { fs.rmSync(config.shutdownFile, { force: true }); } catch { /* shutdown must still complete */ } } closeRealtime(); redirect?.close(); void closeVite?.(); const watchdog = setTimeout(() => { server.closeAllConnections(); process.exit(1); }, 10_000); watchdog.unref(); server.close(() => { clearTimeout(watchdog); db.close(); process.exit(0); }); server.closeIdleConnections(); };
+  const shutdown = () => { if (closing) return; closing = true; if (config.shutdownFile) { fs.unwatchFile(config.shutdownFile); try { fs.rmSync(config.shutdownFile, { force: true }); } catch { /* shutdown must still complete */ } } stopBackups(); closeRealtime(); redirect?.close(); void closeVite?.(); const watchdog = setTimeout(() => { server.closeAllConnections(); process.exit(1); }, 10_000); watchdog.unref(); server.close(() => { clearTimeout(watchdog); db.close(); process.exit(0); }); server.closeIdleConnections(); };
   if (config.shutdownFile) fs.watchFile(config.shutdownFile, { interval: 500, persistent: false }, () => { try { const stat = fs.lstatSync(config.shutdownFile); if (stat.isFile() && !stat.isSymbolicLink() && stat.size <= 64 && fs.readFileSync(config.shutdownFile, 'utf8').trim() === 'shutdown') shutdown(); } catch { /* no signal or not readable */ } });
   process.once('SIGTERM', shutdown); process.once('SIGINT', shutdown);
 }

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { currentStep, totpCode } from '../../server/totp';
 
 test('desktop dashboard, global search, navigation and filters use real persisted data', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
@@ -120,4 +121,37 @@ test('keyboard palette, shortcuts, persistent dark theme and revenue goals', asy
   await page.goto('/#/analytics'); await page.getByRole('button', { name: 'Editar metas' }).click(); await page.getByRole('dialog').getByLabel(/Meta mensual/).fill(''); await page.getByRole('dialog').getByLabel(/Meta anual/).fill(''); await page.getByRole('dialog').getByRole('button', { name: 'Guardar metas' }).click();
   await expect(page.getByRole('button', { name: 'Fijar metas' })).toBeVisible();
   await page.evaluate(() => localStorage.removeItem('nexo.theme')); expect(errors).toEqual([]);
+});
+test('two-step verification, recovery codes, backups and CSP in production', async ({ page }) => {
+  const cspViolations: string[] = []; page.on('console', message => { if (/Content Security Policy|Refused to/.test(message.text())) cspViolations.push(message.text()); });
+  await page.goto('http://127.0.0.1:3101'); await page.getByLabel('Usuario').fill('admin'); await page.getByLabel('Contraseña').fill('clave-publica-solo-para-e2e'); await page.getByRole('button', { name: 'Entrar a mi espacio' }).click();
+  await expect(page.locator('h1')).toHaveText('Todo tu negocio, en orden.');
+  // Activar la verificación en dos pasos desde «Mi cuenta».
+  await page.locator('.sidebar-profile').click(); const account = page.getByRole('dialog');
+  await account.getByRole('tab', { name: /Verificación en dos pasos/ }).click();
+  await account.getByRole('button', { name: 'Activar verificación en dos pasos' }).click();
+  await expect(account.locator('.twofa-qr svg')).toBeVisible();
+  const secret = (await account.locator('.twofa-secret code').innerText()).replace(/\s/g, '');
+  await account.getByLabel('Escribe el código que muestra la aplicación').fill(totpCode(secret, currentStep()));
+  await account.getByRole('button', { name: 'Activar verificación' }).click();
+  await expect(account.locator('.recovery-codes li')).toHaveCount(10);
+  const recovery = (await account.locator('.recovery-codes code').first().innerText()).trim();
+  await expect(account.getByRole('button', { name: 'Ya los guardé' })).toBeDisabled();
+  const download = page.waitForEvent('download'); await account.getByRole('button', { name: 'Descargar .txt' }).click(); expect((await download).suggestedFilename()).toBe('nexo-codigos-recuperacion-admin.txt');
+  await account.getByRole('button', { name: 'Ya los guardé' }).click(); await expect(page.getByText('Verificación en dos pasos activada.')).toBeVisible();
+  await account.getByRole('tab', { name: 'Mis sesiones' }).click(); await expect(account.locator('.own-sessions')).toContainText('Este dispositivo');
+  await account.getByRole('button', { name: 'Cerrar', exact: true }).last().click();
+  // Copias de seguridad desde Usuarios y acceso.
+  await page.getByRole('button', { name: 'Usuarios y acceso' }).click(); await expect(page.locator('.users-table')).toContainText('2FA');
+  await page.getByRole('button', { name: 'Crear copia ahora' }).click(); await expect(page.locator('.backups-table')).toContainText('.nxb');
+  await expect(page.locator('.security-events')).toContainText('Copia de seguridad creada');
+  // Segundo paso al entrar: con un código de recuperación (un solo uso).
+  await page.getByRole('button', { name: 'Cerrar sesión', exact: true }).click();
+  await page.getByLabel('Usuario').fill('admin'); await page.getByLabel('Contraseña').fill('clave-publica-solo-para-e2e'); await page.getByRole('button', { name: 'Entrar a mi espacio' }).click();
+  await expect(page.getByRole('heading', { name: 'Verificación en dos pasos.' })).toBeVisible();
+  await page.getByLabel('Código de verificación').fill('000000'); await page.getByRole('button', { name: 'Verificar y entrar' }).click(); await expect(page.getByRole('alert')).toContainText('El código no es correcto.');
+  await page.getByRole('button', { name: /Usa un código de recuperación/ }).click(); await page.getByLabel('Código de recuperación').fill(recovery); await page.getByRole('button', { name: 'Verificar y entrar' }).click();
+  await expect(page.locator('h1')).toHaveText('Todo tu negocio, en orden.'); await expect(page.locator('.auth-notice')).toContainText('Te quedan 9');
+  await page.getByRole('button', { name: 'Cerrar sesión', exact: true }).click(); await expect(page.getByRole('button', { name: 'Entrar a mi espacio' })).toBeVisible();
+  expect(cspViolations).toEqual([]);
 });

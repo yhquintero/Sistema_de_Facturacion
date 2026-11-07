@@ -14,9 +14,9 @@ export function createSessionlessSnapshot(source: string, snapshot: string) {
   fs.chmodSync(snapshot, 0o600);
   const copy = new DatabaseSync(snapshot);
   try {
-    if (copy.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_sessions'").get()) {
-      copy.exec('PRAGMA secure_delete=ON; DELETE FROM user_sessions; VACUUM;');
-    }
+    // Restaurar nunca reabre sesiones ni arrastra bloqueos de acceso por intentos fallidos.
+    const volatile = ['user_sessions', 'login_failures'].filter(table => copy.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table));
+    if (volatile.length) copy.exec(`PRAGMA secure_delete=ON; ${volatile.map(table => `DELETE FROM ${table};`).join(' ')} VACUUM;`);
   } finally { copy.close(); }
 }
 export async function createEncryptedBackup(source: string, directory: string, keyFile: string) {

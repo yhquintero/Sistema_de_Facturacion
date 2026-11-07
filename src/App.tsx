@@ -1,25 +1,25 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Bell, BookOpen, Building2, ChevronDown, ChevronRight, ChevronsUpDown, CircleHelp, Command, Download, FileCheck2, FilePlus2, FileSignature, FileText, FolderKanban, Home, ChartLine, Keyboard, Monitor, Moon, Palette, Sun, TriangleAlert, Clock3, FileClock, Laptop, Layers3, LayoutDashboard, Landmark, Menu, MoreHorizontal, Plus, Search, Settings2, ShieldCheck, Smartphone, Users, WifiOff, X } from 'lucide-react';
 import { AppProvider, useApp, useRoute } from './context/AppContext';
 import { EmptyState, Modal } from './components/UI';
 import { initials, isRevenue, money } from './lib/format';
 import DashboardView from './views/DashboardView';
 import InvoicesListView from './views/InvoicesListView';
-import InvoiceBuilderView from './views/InvoiceBuilderView';
-import InvoiceDetailView from './views/InvoiceDetailView';
+const InvoiceBuilderView = lazy(() => import('./views/InvoiceBuilderView'));
+const InvoiceDetailView = lazy(() => import('./views/InvoiceDetailView'));
 import ClientsView from './views/ClientsView';
-import ContractsView from './views/ContractsView';
-import CatalogView from './views/CatalogView';
-import SupplierProfileView from './views/SupplierProfileView';
-import FiscalView from './views/FiscalView';
-import SecurityView from './views/SecurityView';
+const ContractsView = lazy(() => import('./views/ContractsView'));
+const CatalogView = lazy(() => import('./views/CatalogView'));
+const SupplierProfileView = lazy(() => import('./views/SupplierProfileView'));
+const FiscalView = lazy(() => import('./views/FiscalView'));
+const SecurityView = lazy(() => import('./views/SecurityView'));
 import PrivacyNotice from './components/PrivacyNotice';
 import AuthGate, { useAuth } from './components/AuthGate';
 import { LogOut, UserCog } from 'lucide-react';
-import UsersView from './views/UsersView';
+const UsersView = lazy(() => import('./views/UsersView'));
 import AccountDialog from './components/AccountDialog';
 import { ROLE_INFO } from '../shared/permissions';
-import AnalyticsView from './views/AnalyticsView';
+const AnalyticsView = lazy(() => import('./views/AnalyticsView'));
 import CommandPalette, { type PaletteCommand } from './components/CommandPalette';
 import { PreferencesDialog, ShortcutsDialog } from './components/Preferences';
 import { THEMES, nextTheme, usePreferences } from './lib/preferences';
@@ -146,7 +146,7 @@ function Workspace() {
     </aside>
     <div className="main-shell"><header className="topbar no-print"><button className="icon-btn menu-toggle" aria-label="Abrir navegación" aria-expanded={drawer} onClick={() => setDrawer(s => !s)}><Menu size={21} /></button><a href="#/" className="mobile-logo"><BrandSymbol />nexo.</a><div className="breadcrumb"><Home size={13} strokeWidth={1.5} /><span>Espacio de trabajo</span><ChevronRight size={11} /><span className="current">{title}</span></div><div className="topbar-tools"><button className="global-search" onClick={() => setSearchOpen(true)} aria-label="Buscar en el sistema"><Search size={14} strokeWidth={1.7} /><span>Buscar algo…</span><kbd>⌘ K</kbd></button><button className="icon-btn topbar-tool" aria-label={`Tema: ${THEMES[prefs.theme].short}. Cambiar tema`} title={`Tema: ${THEMES[prefs.theme].label} (T)`} onClick={cycleTheme}><ThemeIcon size={17} strokeWidth={1.7} /></button><button className="icon-btn topbar-tool hide-mobile" aria-label="Atajos de teclado" title="Atajos de teclado (?)" onClick={() => setShortcutsOpen(true)}><Keyboard size={17} strokeWidth={1.7} /></button><div className="topbar-separator" /><div ref={notificationRef} className="notification-anchor"><button className={`icon-btn ${alerts.length ? 'notification-button' : ''} ${alertSummary.high ? 'urgent' : ''}`} aria-label={alerts.length ? `Ver avisos (${alerts.length})` : 'Ver avisos'} aria-expanded={notifications} onClick={() => setNotifications(s => !s)}><Bell size={18} strokeWidth={1.6} />{alerts.length > 0 && <span className="bell-count" aria-hidden="true">{alerts.length > 9 ? '9+' : alerts.length}</span>}</button>{notifications && <div className="notification-menu"><h3>{alerts.length ? `${alerts.length} ${alerts.length === 1 ? 'aviso' : 'avisos'} de tu negocio` : 'Al día con tu negocio'}</h3>{alerts.length ? <div className="notification-scroll">{alerts.slice(0, 12).map(a => { const Icon = alertIcon[a.kind]; return <button className={`notification-item sev-${a.severity}`} key={a.id} onClick={() => go(a.path)}><Icon size={17} /><span><strong>{a.title}</strong><br />{a.detail}{a.amount !== undefined && a.currency ? ` ${money(a.amount, a.currency, true)}.` : ''}</span><span className={`sev-tag ${a.severity}`}>{severityLabel[a.severity]}</span></button>; })}</div> : <p>Sin cobros vencidos, firmas pendientes ni contratos por terminar. Todo en orden.</p>}{alerts.length > 12 && <p className="notification-more">Y {alerts.length - 12} más.</p>}<button className="notification-item" onClick={() => go('/analytics')}><ChartLine size={17} /><span><strong>Análisis y metas</strong><br />Tendencia, antigüedad del cobro y metas.</span><ChevronRight size={12} /></button></div>}</div><button className="topbar-profile" onClick={() => setAccountOpen(true)} aria-label="Abrir mi cuenta"><span className="profile-avatar">{initials(auth.user?.displayName || supplier.ownerName)}</span><ChevronDown size={12} /></button></div></header>
       {!online && <div className="offline-banner" role="status"><WifiOff size={13} style={{ display: 'inline', marginRight: 6 }} />Sin conexión. Los cambios, firmas y exportaciones necesitan conexión al servidor.</div>}
-      <main id="main-content" className="page-content"><div key={path} className="fade-in">{renderView()}</div><footer className="footer no-print"><span>© {new Date().getFullYear()} Nexo. Cada detalle, en orden.</span><div className="footer-links"><button onClick={()=>setPrivacyOpen(true)}>Privacidad y datos</button><button onClick={() => setHelpOpen(true)}>Ayuda y documentación</button><button onClick={() => go('/settings')}>Configuración del negocio</button></div><span className={`realtime-${realtime}`} title={lastSync ? `Última sincronización: ${new Date(lastSync).toLocaleTimeString('es')}` : 'Esperando sincronización'}><span className="server-dot" />{realtime === 'live' ? 'Tiempo real activo' : realtime === 'offline' ? 'Sin conexión' : 'Reconectando'}<span style={{ margin: '0 5px', opacity: .5 }}>·</span>v1.0</span></footer></main>
+      <main id="main-content" className="page-content"><div key={path} className="fade-in"><Suspense fallback={<div className="view-loading" role="status" aria-live="polite">Cargando…</div>}>{renderView()}</Suspense></div><footer className="footer no-print"><span>© {new Date().getFullYear()} Nexo. Cada detalle, en orden.</span><div className="footer-links"><button onClick={()=>setPrivacyOpen(true)}>Privacidad y datos</button><button onClick={() => setHelpOpen(true)}>Ayuda y documentación</button><button onClick={() => go('/settings')}>Configuración del negocio</button></div><span className={`realtime-${realtime}`} title={lastSync ? `Última sincronización: ${new Date(lastSync).toLocaleTimeString('es')}` : 'Esperando sincronización'}><span className="server-dot" />{realtime === 'live' ? 'Tiempo real activo' : realtime === 'offline' ? 'Sin conexión' : 'Reconectando'}<span style={{ margin: '0 5px', opacity: .5 }}>·</span>v1.0</span></footer></main>
     </div>
     <nav className="mobile-nav no-print" aria-label="Navegación móvil"><button className={path === '/' ? 'active' : ''} onClick={() => go('/')}><LayoutDashboard size={19} strokeWidth={1.7} />Inicio</button><button className={path.startsWith('/invoices') ? 'active' : ''} onClick={() => go('/invoices')}><FileText size={19} strokeWidth={1.7} />Facturas</button>{canCreateInvoice ? <button className="new-mobile" aria-label="Nueva factura" onClick={() => go('/invoices/new')}><Plus size={23} /></button> : <button className={path === '/contracts' ? 'active' : ''} onClick={() => go('/contracts')}><FileSignature size={19} strokeWidth={1.7} />Contratos</button>}<button className={path === '/clients' ? 'active' : ''} onClick={() => go('/clients')}><Users size={19} strokeWidth={1.7} />Clientes</button><button onClick={() => setDrawer(true)}><MoreHorizontal size={20} />Más</button></nav>
     {searchOpen && <CommandPalette onClose={() => setSearchOpen(false)} go={go} commands={commands} />}

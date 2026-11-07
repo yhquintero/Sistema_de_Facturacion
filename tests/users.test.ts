@@ -7,6 +7,8 @@ import path from 'node:path';
 import { createSampleSignatureDataUrl } from '../server/utils/signaturePng';
 
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nexo-users-')); process.env.DATA_DIR = directory; process.env.SEED_DEMO = 'true';
+// El bloqueo persistente por usuario+conexión (5 intentos) se prueba en two-factor.test.ts; aquí se aísla el limitador en memoria.
+process.env.LOGIN_MAX_ATTEMPTS = '50';
 const { createApp } = await import('../server/app'); const { db, getInvoiceById } = await import('../server/db');
 let server: http.Server, origin: string;
 before(async () => { server = http.createServer(createApp({ password: '', allowSetup: true })); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`; });

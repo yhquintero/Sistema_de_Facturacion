@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Nexo · Facturación para trabajadores por cuenta propia en Cuba</title>
+<meta name="description" content="Clientes, contratos, facturas en PDF, Word y Excel, firma de conformidad y registro fiscal ONAT. Web instalable y servidor propio con HTTPS, verificación en dos pasos y copias cifradas." />
+<meta name="theme-color" content="#2d6a57" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Nexo" />
+<meta property="og:title" content="Nexo · Factura. Firma. Cobra." />
+<meta property="og:description" content="Facturación para TCP en Cuba: contratos, facturas, conformidad del cliente y preparación fiscal. Web PWA y servidor propio con HTTPS y 2FA." />
+<meta property="og:image" content="https://yhquintero.github.io/Sistema_de_Facturacion/assets/social-preview.png" />
+<meta property="og:url" content="https://yhquintero.github.io/Sistema_de_Facturacion/" />
+<meta property="og:locale" content="es_ES" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:image" content="https://yhquintero.github.io/Sistema_de_Facturacion/assets/social-preview.png" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Crect width='128' height='128' rx='28' fill='%232d6a57'/%3E%3Cg transform='translate(64 45) rotate(-30)'%3E%3Crect x='-27' y='-14' width='54' height='28' rx='7' fill='%2386ad98'/%3E%3C/g%3E%3Cg transform='translate(64 61) rotate(-30)'%3E%3Crect x='-27' y='-14' width='54' height='28' rx='7' fill='%23b3d0be'/%3E%3C/g%3E%3Cg transform='translate(64 77) rotate(-30)'%3E%3Crect x='-27' y='-14' width='54' height='28' rx='7' fill='%23ecf4ed'/%3E%3C/g%3E%3C/svg%3E" />
+<link rel="apple-touch-icon" href="assets/nexo-icon.png" />
+<style>
+  :root {
+    --brand: #2d6a57;
+    --brand-ink: #1f4d3f;
+    --brand-soft: #eaf3ee;
+    --gold: #9a6b1f;
+    --gold-soft: #fff6e3;
+    --bg: #ffffff;
+    --surface: #f5f8f6;
+    --ink: #1c2b25;
+    --muted: #55665d;
+    --line: #e1e9e4;
+    --shadow: 0 1px 2px rgba(23, 57, 42, .06), 0 14px 36px rgba(23, 57, 42, .09);
+    --radius: 16px;
+    --max: 1120px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --brand: #8fd1b4;
+      --brand-ink: #b6e6cf;
+      --brand-soft: #14271f;
+      --gold: #f2c46d;
+      --gold-soft: #2a2213;
+      --bg: #0c1411;
+      --surface: #121d18;
+      --ink: #eef5f1;
+      --muted: #a3b5ab;
+      --line: #22332b;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 14px 36px rgba(0, 0, 0, .45);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.65 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--brand); text-underline-offset: 3px; }
+  a:hover { text-decoration-thickness: 2px; }
+  :focus-visible { outline: 3px solid var(--brand); outline-offset: 3px; border-radius: 6px; }
+  img { max-width: 100%; height: auto; display: block; }
+  h1, h2, h3 { line-height: 1.18; letter-spacing: -.02em; margin: 0 0 .5em; }
+  h1 { font-size: clamp(2.1rem, 5vw, 3.3rem); font-weight: 800; }
+  h2 { font-size: clamp(1.55rem, 3.2vw, 2.15rem); font-weight: 760; }
+  h3 { font-size: 1.08rem; font-weight: 700; }
+  p { margin: 0 0 1em; }
+  code { font: .9em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--surface); border: 1px solid var(--line); padding: .08em .35em; border-radius: 6px; }
+  .wrap { width: min(100% - 2.5rem, var(--max)); margin-inline: auto; }
+  .skip { position: absolute; left: -9999px; top: 0; background: var(--brand); color: #fff; padding: .7rem 1.1rem; border-radius: 0 0 10px 0; z-index: 10; }
+  .skip:focus { left: 0; }
+
+  header.site {
+    position: sticky; top: 0; z-index: 5; background: var(--bg);
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: saturate(1.4) blur(10px); border-bottom: 1px solid var(--line);
+  }
+  header.site .wrap { display: flex; align-items: center; gap: 1.25rem; min-height: 64px; }
+  .logo { display: flex; align-items: center; gap: .6rem; font-weight: 800; font-size: 1.3rem; letter-spacing: -.04em; color: var(--ink); text-decoration: none; }
+  .logo img { width: 34px; height: 34px; border-radius: 9px; }
+  .logo b { color: var(--brand); }
+  nav.top { margin-left: auto; display: flex; gap: 1.1rem; flex-wrap: wrap; font-size: .93rem; }
+  nav.top a { color: var(--muted); text-decoration: none; font-weight: 550; }
+  nav.top a:hover { color: var(--ink); }
+  @media (max-width: 760px) { nav.top .opt { display: none; } }
+
+  .btn { display: inline-flex; align-items: center; gap: .5rem; font-weight: 650; text-decoration: none; padding: .78rem 1.2rem; border-radius: 11px; border: 1px solid transparent; transition: transform .15s, background .15s; }
+  .btn:hover { transform: translateY(-1px); }
+  .btn.primary { background: #2d6a57; color: #fff; box-shadow: 0 6px 18px rgba(45, 106, 87, .28); }
+  .btn.primary:hover { background: #235542; }
+  .btn.ghost { border-color: var(--line); color: var(--ink); background: var(--bg); }
+
+  section { padding: clamp(3.2rem, 7vw, 5.5rem) 0; }
+  .eyebrow { text-transform: uppercase; letter-spacing: .14em; font-size: .76rem; font-weight: 700; color: var(--brand); margin-bottom: .8rem; }
+  .lead { font-size: clamp(1.06rem, 1.8vw, 1.22rem); color: var(--muted); max-width: 60ch; }
+  .center { text-align: center; } .center .lead { margin-inline: auto; }
+
+  .hero { padding-top: clamp(2.6rem, 6vw, 4.5rem); background:
+      radial-gradient(900px 420px at 90% -10%, color-mix(in srgb, var(--brand) 18%, transparent), transparent 70%),
+      radial-gradient(700px 360px at -10% 100%, color-mix(in srgb, var(--brand) 10%, transparent), transparent 70%); }
+  .hero h1 b { color: var(--brand); }
+  .hero .cta { display: flex; gap: .8rem; flex-wrap: wrap; margin: 1.6rem 0 1.2rem; }
+  .chips { display: flex; flex-wrap: wrap; gap: .5rem; padding: 0; margin: 0; list-style: none; }
+  .chips li { font-size: .85rem; font-weight: 600; color: var(--brand-ink); background: var(--brand-soft); border: 1px solid var(--line); border-radius: 999px; padding: .28rem .8rem; }
+  .shot { margin-top: clamp(2rem, 5vw, 3.2rem); border-radius: 18px; overflow: hidden; box-shadow: var(--shadow); border: 1px solid var(--line); }
+
+  .grid { display: grid; gap: 1.1rem; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); margin-top: 2.2rem; }
+  .card { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.35rem 1.35rem 1.1rem; box-shadow: 0 1px 2px rgba(0,0,0,.03); }
+  .card .ico { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 11px; background: var(--brand-soft); font-size: 1.3rem; margin-bottom: .85rem; }
+  .card p { color: var(--muted); font-size: .96rem; margin: 0; }
+  .alt { background: var(--surface); border-block: 1px solid var(--line); }
+
+  .flow { display: flex; flex-wrap: wrap; justify-content: center; gap: .55rem; align-items: center; margin: 2rem 0 0; padding: 0; list-style: none; }
+  .flow li { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: .65rem 1rem; font-weight: 650; box-shadow: 0 1px 2px rgba(0,0,0,.03); }
+  .flow li.sep { border: 0; background: none; box-shadow: none; padding: 0; color: var(--muted); font-weight: 400; }
+
+  .gallery { display: grid; gap: 1.4rem; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); margin-top: 2.2rem; }
+  .gallery figure { margin: 0; }
+  .gallery img { border-radius: 14px; border: 1px solid var(--line); box-shadow: var(--shadow); }
+  .gallery figcaption { font-size: .92rem; color: var(--muted); margin-top: .7rem; }
+  .gallery figcaption b { color: var(--ink); }
+  .note { font-size: .86rem; color: var(--muted); margin-top: 1.4rem; }
+
+  .steps { counter-reset: s; display: grid; gap: 1.1rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin-top: 2.2rem; }
+  .step { position: relative; padding: 1.35rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+  .step::before { counter-increment: s; content: counter(s); display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: #2d6a57; color: #fff; font-weight: 750; margin-bottom: .8rem; }
+  .step p { color: var(--muted); font-size: .96rem; }
+  pre { margin: .6rem 0 0; background: #0f1d17; color: #d8efe3; padding: .85rem 1rem; border-radius: 10px; overflow-x: auto; font: .82rem/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 2rem; font-size: .95rem; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  th, td { padding: .75rem .9rem; border-bottom: 1px solid var(--line); text-align: center; }
+  th:first-child, td:first-child { text-align: left; }
+  thead th { background: var(--brand-soft); color: var(--brand-ink); font-size: .85rem; letter-spacing: .02em; }
+  tbody tr:last-child td { border-bottom: 0; }
+  .yes { color: var(--brand); font-weight: 800; } .no { color: var(--muted); }
+  .table-wrap { overflow-x: auto; }
+
+  .callout { margin-top: 2rem; display: flex; gap: .9rem; padding: 1.1rem 1.25rem; border-radius: 14px; background: var(--gold-soft); border: 1px solid color-mix(in srgb, var(--gold) 30%, transparent); }
+  .callout p { margin: 0; color: var(--ink); font-size: .96rem; }
+  .callout strong { color: var(--gold); }
+
+  .cierre { text-align: center; background: linear-gradient(160deg, #2d6a57, #1d4a3b); color: #f2faf6; }
+  .cierre h2 { color: #fff; } .cierre .lead { color: #cfe7db; margin-inline: auto; }
+  .cierre .btn.primary { background: #fff; color: #1f4d3f; box-shadow: none; }
+  .cierre .btn.ghost { background: transparent; color: #fff; border-color: rgba(255,255,255,.35); }
+  .cierre .cta { display: flex; justify-content: center; gap: .8rem; flex-wrap: wrap; margin-top: 1.6rem; }
+
+  footer { padding: 2rem 0 2.6rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .88rem; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: .8rem 1.6rem; justify-content: space-between; }
+  footer nav { display: flex; gap: 1.1rem; flex-wrap: wrap; }
+  footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+<a class="skip" href="#contenido">Saltar al contenido</a>
+
+<header class="site">
+  <div class="wrap">
+    <a class="logo" href="#inicio" aria-label="Nexo, inicio"><img src="assets/nexo-icon.png" alt="" width="34" height="34" /><span>nexo<b>.</b></span></a>
+    <nav class="top" aria-label="Secciones">
+      <a href="#funciones">Funciones</a>
+      <a href="#capturas">Capturas</a>
+      <a class="opt" href="#seguridad">Seguridad</a>
+      <a class="opt" href="#empezar">Empezar</a>
+      <a href="https://github.com/yhquintero/Sistema_de_Facturacion">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="contenido">
+  <section class="hero" id="inicio">
+    <div class="wrap">
+      <p class="eyebrow">Facturación para TCP · Cuba</p>
+      <h1>Factura. Firma. <b>Cobra.</b></h1>
+      <p class="lead">Nexo ordena tu trabajo de principio a fin: clientes, contratos, facturas en PDF, Word y Excel, la firma de conformidad de tu cliente y el registro fiscal. En tu propio equipo, con HTTPS y verificación en dos pasos.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/yhquintero/Sistema_de_Facturacion#-inicio-rápido">Empezar</a>
+        <a class="btn ghost" href="#capturas">Ver capturas</a>
+      </div>
+      <ul class="chips" aria-label="Características">
+        <li>Web instalable (PWA)</li><li>Servidor propio</li><li>HTTPS</li><li>Verificación en dos pasos</li><li>Copias cifradas</li><li>Preparación ONAT</li>
+      </ul>
+      <div class="shot"><img src="assets/nexo-hero.png" width="2400" height="1290" alt="Resumen general de Nexo en el navegador y en el móvil" /></div>
+    </div>
+  </section>
+
+  <section id="flujo" class="alt">
+    <div class="wrap center">
+      <p class="eyebrow">Un solo recorrido</p>
+      <h2>Del contrato a la conformidad, sin papeles sueltos</h2>
+      <p class="lead">Cada factura nace de un contrato y termina con la firma de quien recibe el servicio. Los cobros pasan al libro fiscal para que el cierre se pueda explicar.</p>
+      <ol class="flow" aria-label="Ciclo de facturación">
+        <li>Suministrador</li><li class="sep" aria-hidden="true">→</li>
+        <li>Cliente</li><li class="sep" aria-hidden="true">→</li>
+        <li>Contrato</li><li class="sep" aria-hidden="true">→</li>
+        <li>Factura</li><li class="sep" aria-hidden="true">→</li>
+        <li>Conformidad</li><li class="sep" aria-hidden="true">→</li>
+        <li>Registro fiscal</li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="funciones">
+    <div class="wrap">
+      <p class="eyebrow">Funciones</p>
+      <h2>Lo que necesitas para facturar tu trabajo</h2>
+      <div class="grid">
+        <article class="card"><div class="ico" aria-hidden="true">🧾</div><h3>Facturas desde el contrato</h3><p>Correlativo automático, vencimiento, moneda y servicios del catálogo. Borradores que se terminan después.</p></article>
+        <article class="card"><div class="ico" aria-hidden="true">📄</div><h3>PDF, Word y Excel reales</h3><p>A3, A4, A5, B4, B5, Letter, Legal, Folio, Executive y Tabloid, en vertical u horizontal.</p></article>
+        <article class="card"><div class="ico" aria-hidden="true">🛠️</div><h3>Desglose técnico</h3><p>Hardware, sistema operativo, programas y controladores de cada equipo, con sus pruebas de verificación.</p></article>
+        <article class="card"><div class="ico" aria-hidden="true">✍️</div><h3>Firma de conformidad</h3><p>Tu cliente firma en pantalla. Queda una copia fija del documento con su huella de contenido.</p></article>
+        <article class="card"><div class="ico" aria-hidden="true">📊</div><h3>Análisis y metas</h3><p>Tendencia, antigüedad del cobro y metas mensuales y anuales por moneda. Informe imprimible.</p></article>
+        <article class="card"><div class="ico" aria-hidden="true">🏛️</div><h3>Fiscal · Cuba / ONAT</h3><p>Cobros, gastos, tributos, conciliación y auxiliares en Excel, CSV y ZIP para revisar con tu asesor.</p></article>
+        <article class="card"><div class="ico" aria-hidden="true">🔔</div><h3>Avisos a tiempo</h3><p>Facturas vencidas o por vencer, firmas pendientes y contratos que terminan, en la campana y en el Resumen.</p></article>
+        <article class="card"><div class="ico" aria-hidden="true">⚡</div><h3>Rápido con el teclado</h3><p>Paleta <code>Ctrl + K</code> que busca sin tildes, atajos para cada pantalla y tema claro u oscuro.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section id="capturas" class="alt">
+    <div class="wrap">
+      <p class="eyebrow">Capturas</p>
+      <h2>Así se ve trabajando</h2>
+      <div class="gallery">
+        <figure><img src="assets/capturas/facturas.png" loading="lazy" width="2880" height="1800" alt="Listado de facturas con filtros" /><figcaption><b>Facturas.</b> Filtros por estado, conformidad, cliente y moneda.</figcaption></figure>
+        <figure><img src="assets/capturas/factura-detalle.png" loading="lazy" width="2880" height="1800" alt="Detalle de factura con exportación" /><figcaption><b>Factura y acta.</b> Tamaño de hoja, orientación y descarga en tres formatos.</figcaption></figure>
+        <figure><img src="assets/capturas/contratos.png" loading="lazy" width="2880" height="1800" alt="Contratos" /><figcaption><b>Contratos.</b> Vigencia y facturación de cada contrato.</figcaption></figure>
+        <figure><img src="assets/capturas/analisis.png" loading="lazy" width="2880" height="1800" alt="Análisis y metas" /><figcaption><b>Análisis y metas.</b> Cómo va tu negocio, mes a mes.</figcaption></figure>
+        <figure><img src="assets/capturas/fiscal.png" loading="lazy" width="2880" height="1800" alt="Fiscal Cuba ONAT" /><figcaption><b>Fiscal · Cuba / ONAT.</b> Un cierre que puedas explicar.</figcaption></figure>
+        <figure><img src="assets/capturas/resumen-oscuro.png" loading="lazy" width="2880" height="1800" alt="Resumen en modo oscuro" /><figcaption><b>Modo oscuro.</b> Automático, claro u oscuro, como prefieras.</figcaption></figure>
+      </div>
+      <p class="note">Datos de demostración: no contienen información de personas ni negocios reales.</p>
+    </div>
+  </section>
+
+  <section id="seguridad">
+    <div class="wrap">
+      <p class="eyebrow">Seguridad</p>
+      <h2>Tus datos, en tu equipo y protegidos</h2>
+      <div class="grid">
+        <article class="card"><div class="ico" aria-hidden="true">🔐</div><h3>HTTPS siempre</h3><p>TLS 1.2/1.3 directo o con Caddy. En producción el servidor no arranca sin cifrado.</p></article>
+        <article class="card"><div class="ico" aria-hidden="true">📱</div><h3>Verificación en dos pasos</h3><p>Códigos TOTP con cualquier app y 10 códigos de recuperación. Obligatoria para administradores si quieres.</p></article>
+        <article class="card"><div class="ico" aria-hidden="true">⏱️</div><h3>Bloqueo e inactividad</h3><p>5 intentos fallidos bloquean 5 minutos. La sesión se cierra tras 30 minutos sin uso, con aviso previo.</p></article>
+        <article class="card"><div class="ico" aria-hidden="true">💾</div><h3>Copias cifradas</h3><p>AES-256-GCM con clave separada, copia diaria automática y restauración siempre a un archivo nuevo.</p></article>
+      </div>
+      <div class="callout" role="note">
+        <span aria-hidden="true">⚠️</span>
+        <p><strong>Nexo prepara, no presenta.</strong> No está certificado ni aceptado por la ONAT. La DJ-08 oficial sigue bloqueada hasta verificar el modelo del ejercicio. La firma de conformidad no es una firma digital certificada.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="roles" class="alt">
+    <div class="wrap">
+      <p class="eyebrow">Equipo</p>
+      <h2>Cada persona, sus permisos</h2>
+      <p class="lead">Cuentas personales con cuatro roles. El servidor comprueba cada acción; ocultar un botón no es el control.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col">Acción</th><th scope="col">Administrador</th><th scope="col">Gestor</th><th scope="col">Técnico</th><th scope="col">Solo lectura</th></tr></thead>
+          <tbody>
+            <tr><td>Consultar y descargar facturas</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+            <tr><td>Borradores y firma asistida</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td></tr>
+            <tr><td>Clientes, contratos, emisión y cobro</td><td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td><td class="no">—</td></tr>
+            <tr><td>Usuarios, copias y seguridad</td><td class="yes">✓</td><td class="no">—</td><td class="no">—</td><td class="no">—</td></tr>
+            <tr><td>Auxiliares fiscales (consultar)</td><td class="yes">✓</td><td class="yes">✓</td><td class="no">—</td><td class="yes">✓</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="empezar">
+    <div class="wrap">
+      <p class="eyebrow">Empezar</p>
+      <h2>En marcha en tres pasos</h2>
+      <div class="steps">
+        <div class="step"><h3>Prepara el equipo</h3><p>Instala Node.js 22.13+, PowerShell 7.4+ y Caddy en el PC que hará de servidor.</p></div>
+        <div class="step"><h3>Arranca el panel</h3><p>Instala dependencias, crea el administrador y activa HTTPS.</p><pre>pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -InstallDependencies</pre></div>
+        <div class="step"><h3>Conecta los móviles</h3><p>Modo red local con tu IP fija, confía en la CA local y elige «Instalar» en el navegador.</p></div>
+      </div>
+      <p class="note">Guía completa: <a href="https://github.com/yhquintero/Sistema_de_Facturacion/blob/main/docs/OPERACION-SEGURA.md">operación segura</a> · <a href="https://github.com/yhquintero/Sistema_de_Facturacion/blob/main/docs/ONAT-CUBA.md">alcance fiscal</a> · <a href="https://github.com/yhquintero/Sistema_de_Facturacion/blob/main/SECURITY.md">seguridad</a>.</p>
+    </div>
+  </section>
+
+  <section class="cierre">
+    <div class="wrap">
+      <h2>Tu facturación, en orden</h2>
+      <p class="lead">Software propietario con código visible. Para usar Nexo en tu negocio, solicita una licencia de uso al titular.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/yhquintero/Sistema_de_Facturacion">Ver en GitHub</a>
+        <a class="btn ghost" href="https://github.com/yhquintero/Sistema_de_Facturacion/blob/main/LICENSE">Licencia</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 yhquintero · Nexo · Sistema de Facturación. Todos los derechos reservados.</span>
+    <nav aria-label="Enlaces del pie">
+      <a href="https://github.com/yhquintero/Sistema_de_Facturacion/blob/main/CHANGELOG.md">Novedades</a>
+      <a href="https://github.com/yhquintero/Sistema_de_Facturacion/blob/main/CONTRIBUTING.md">Contribuir</a>
+      <a href="https://github.com/yhquintero/Sistema_de_Facturacion/blob/main/THIRD_PARTY_NOTICES.md">Avisos de terceros</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

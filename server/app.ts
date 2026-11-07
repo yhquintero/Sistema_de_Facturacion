@@ -8,7 +8,8 @@ import { generateInvoiceXlsxBuffer } from './exporters/xlsxExporter';
 import { sanitizeFilename } from './exporters/formatHelpers';
 import { readConfig, type RuntimeConfig } from './config';
 import { installHttpSecurity, createLimiter, isWrite } from './security/http';
-import { installSessions } from './security/sessions';
+import { installSessions, type SessionOptions } from './security/sessions';
+import { listUsers, loginLockMs, loginMaxAttempts, sessionIdleMs, sessionMaxMs } from './users';
 import { requirePermission, assertCan } from './security/authorization';
 import { peerId, securityLog } from './security/log';
 import type { SecurityStatus } from '../shared/security';
@@ -16,8 +17,10 @@ import { installFiscalRoutes } from './fiscal/routes';
 import { installRealtime, publishChange, realtimeConnectionCount } from './realtime';
 
 function respond(action: (req: Request, res: Response) => unknown, status = 200) { return (req: Request, res: Response, next: express.NextFunction) => { try { const data = action(req, res); if (!res.headersSent) res.status(status).json(data); if (isWrite(req) && res.statusCode < 400) publishChange(req.path.split('/')[2] || 'workspace'); } catch (error) { next(error); } }; }
-export function createApp(options: { password?: string; config?: RuntimeConfig; allowSetup?: boolean; adminUsername?: string } = {}) {
+export type AppOptions = SessionOptions & { password?: string; config?: RuntimeConfig };
+export function createApp(options: AppOptions = {}) {
   const app = express(); const config = options.config || readConfig();
+  const requireAdminTwoFactor = options.requireAdminTwoFactor ?? process.env.REQUIRE_ADMIN_2FA === 'true';
   installHttpSecurity(app, config);
   const apiLimit = createLimiter(900, 60_000), exportLimit = createLimiter(20, 60_000);
   app.use('/api', (req, res, next) => { if (req.path === '/health' || apiLimit(peerId(req), res)) next(); });
@@ -27,7 +30,7 @@ export function createApp(options: { password?: string; config?: RuntimeConfig; 
   const authentication = installSessions(app, config, options.password, options);
   installRealtime(app, authentication.check);
   installFiscalRoutes(app);
-  app.get('/api/security/status', requirePermission('security.read'), (req, res) => res.json({ tls: { configuredMode: config.tlsMode, observedHttps: req.secure, publicOrigin: config.publicOrigin }, authentication: { enabled: authentication.enabled, credentialKind: authentication.credentialKind, csrf: authentication.enabled, idleTimeoutMinutes: 30, absoluteTimeoutHours: 8, multiuser: true, mfa: false }, backupEncryptionConfigured: !!config.backupKeyFile, dataAtRestEncryption: 'Requiere BitLocker/LUKS o almacenamiento cifrado verificado; SQLite no está cifrado por la aplicación.', declaredDataCountry: config.dataCountry, residencyVerified: false, realtimeConnections: realtimeConnectionCount(), privacyConfigured: !!config.privacyContact && !!config.controllerName, fiscal: { jurisdiction: 'CU', officialDj08Ready: false, reason: 'Plantilla e instructivo oficiales para ingresos 2026/campaña 2027 pendientes de verificación.' }, assessedAt: '2026-11-04', externalTlsScanVerified: false } satisfies SecurityStatus));
+  app.get('/api/security/status', requirePermission('security.read'), (req, res) => res.json({ tls: { configuredMode: config.tlsMode, observedHttps: req.secure, publicOrigin: config.publicOrigin }, authentication: { enabled: authentication.enabled, credentialKind: authentication.credentialKind, csrf: authentication.enabled, idleTimeoutMinutes: Math.round(sessionIdleMs() / 60_000), absoluteTimeoutHours: Math.round(sessionMaxMs() / 3_600_000), multiuser: true, mfa: requireAdminTwoFactor ? 'required-admins' : 'optional', mfaAccounts: listUsers().filter(u => u.active && u.twoFactorEnabled).length, lockout: { attempts: loginMaxAttempts(), minutes: Math.round(loginLockMs() / 60_000) } }, backupEncryptionConfigured: !!config.backupKeyFile, dataAtRestEncryption: 'Requiere BitLocker/LUKS o almacenamiento cifrado verificado; SQLite no está cifrado por la aplicación.', declaredDataCountry: config.dataCountry, residencyVerified: false, realtimeConnections: realtimeConnectionCount(), privacyConfigured: !!config.privacyContact && !!config.controllerName, fiscal: { jurisdiction: 'CU', officialDj08Ready: false, reason: 'Plantilla e instructivo oficiales para ingresos 2026/campaña 2027 pendientes de verificación.' }, assessedAt: '2026-11-04', externalTlsScanVerified: false } satisfies SecurityStatus));
   app.get('/api/paper-standards', respond(() => PAPER_STANDARDS_LIST));
   app.get('/api/dashboard', respond(() => ({ stats: getDashboardStats(), recentInvoices: listInvoices().slice(0, 6) })));
   app.get('/api/supplier', respond(() => getSupplierProfile()));

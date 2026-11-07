@@ -58,8 +58,13 @@ export function roleCan(role: UserRole | undefined | null, permission: Permissio
   return !!role && ROLE_PERMISSIONS[role].includes(permission);
 }
 
-export type SessionUser = { id: string; username: string; displayName: string; role: UserRole; mustChangePassword: boolean };
-export type WorkspaceUser = SessionUser & { active: boolean; createdAt: string; updatedAt: string; lastLoginAt: string; passwordChangedAt: string };
+export type SessionUser = { id: string; username: string; displayName: string; role: UserRole; mustChangePassword: boolean; twoFactorEnabled: boolean };
+export type WorkspaceUser = SessionUser & { active: boolean; createdAt: string; updatedAt: string; lastLoginAt: string; passwordChangedAt: string; recoveryCodesLeft: number };
+/** Sesión abierta de la propia cuenta («Mis sesiones»). El id es un prefijo de la huella: nunca el token. */
+export type OwnSession = { id: string; current: boolean; createdAt: string; lastSeenAt: string; expiresAt: string; ip: string; userAgent: string };
+export type TwoFactorSetup = { secret: string; otpauthUri: string; qrSvg: string };
+export type BackupInfo = { name: string; size: number; createdAt: string; encrypted: boolean };
+export type BackupStatus = { enabled: boolean; encrypted: boolean; keep: number; hour: number; directory: string; backups: BackupInfo[]; lastBackupAt: string };
 export type SecurityEvent = { id: number; type: string; occurredAt: string; actorName: string; targetName: string; ip: string; details: Record<string, unknown> };
 export type SessionInfo = {
   protected: boolean;
@@ -70,7 +75,17 @@ export type SessionInfo = {
   /** true cuando no hay cuentas y el servidor permite crear el primer administrador desde la interfaz. */
   setupAvailable: boolean;
   csrfToken?: string;
+  /** Minutos de inactividad tras los que el servidor cierra la sesión (0 si no aplica). */
+  idleMinutes?: number;
+  /** Segundos que faltan para el cierre por inactividad según el servidor (lo que cuenta es la última actividad registrada). */
+  idleRemainingSeconds?: number;
+  /** Motivo por el que la sesión anterior terminó: inactividad o duración máxima. */
+  expiredReason?: 'idle' | 'max';
+  /** La política exige que esta cuenta active la verificación en dos pasos antes de continuar. */
+  twoFactorSetupRequired?: boolean;
 };
+/** Respuesta de /api/login cuando la contraseña es correcta pero falta el segundo paso. */
+export type TwoFactorChallenge = { twoFactorRequired: true; challenge: string; displayName: string };
 
 export const PASSWORD_MIN_LENGTH = 14;
 export const PASSWORD_MAX_LENGTH = 1024;

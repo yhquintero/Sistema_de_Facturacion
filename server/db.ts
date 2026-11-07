@@ -3,7 +3,6 @@ import { createHash, randomUUID } from 'node:crypto';
 import { calculateInvoiceTotals, roundMoney } from '../shared/invoiceMath';
 import { clientSchema, contractSchema, invoiceInputSchema, invoiceStatusSchema, revenueGoalsSchema, serviceSchema, signatureSchema, supplierSchema, validate } from './validation';
 import fs from 'node:fs';
-import path from 'node:path';
 import {
   OFFICIAL_PRIMARY_ACTIVITY,
   OFFICIAL_SECONDARY_ACTIVITY,
@@ -19,13 +18,12 @@ import { DEFAULT_SERVICE_CATALOG } from '../shared/catalogPresets';
 import { assertValidSignature, createSampleSignatureDataUrl } from './utils/signaturePng';
 import { currentActor } from './actor';
 
-const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(process.cwd(), 'data'));
+import { DATA_DIR, DB_PATH } from './paths';
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
 }
 
 if (process.platform !== 'win32') { fs.chmodSync(DATA_DIR, 0o700); process.umask(0o077); }
-const DB_PATH = path.join(DATA_DIR, 'facturacion.sqlite');
 export const db = new DatabaseSync(DB_PATH);
 fs.chmodSync(DB_PATH, 0o600);
 

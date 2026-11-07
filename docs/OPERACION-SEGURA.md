@@ -83,7 +83,7 @@ npm run user:reset-password -- admin --admin
 
 La contraseña aleatoria se muestra una sola vez en la consola: no la redirijas a logs compartidos y entrégala por un canal seguro. Se exige cambio en el primer acceso y se revocan las sesiones de esa cuenta. Arranca el servicio y comprueba HTTPS/login/rol. **Regenerar `access.scrypt` o cambiar `APP_PASSWORD` no cambia contraseñas de cuentas que ya existen.** El acceso al SO y a SQLite sigue siendo privilegiado y exige DACL/cifrado de disco.
 
-Las sesiones se guardan con token bearer hashado y CSRF propio, con 30 min de inactividad HTTP / 8 h absolutas y límites 20/cuenta, 256 globales. El arranque real invalida todas las sesiones guardadas; conserva cuentas y datos. La copia elimina sesiones **en la instantánea**, nunca en la base activa. No hay MFA ni aislamiento por cliente: los cuatro roles son internos del mismo Suministrador; no se deben entregar como un portal al Cliente Final.
+Las sesiones se guardan con token bearer hashado y CSRF propio, con `SESSION_IDLE_MINUTES` (30) de inactividad HTTP —con aviso «¿Sigues ahí?» en pantalla— / `SESSION_MAX_HOURS` (8) absolutas y límites 20/cuenta, 256 globales. Cada persona puede cerrar sus otros dispositivos en **Mi cuenta → Mis sesiones**. El arranque real invalida todas las sesiones guardadas; conserva cuentas y datos. La copia elimina sesiones y bloqueos de acceso **en la instantánea**, nunca en la base activa. Hay verificación en dos pasos TOTP por cuenta (obligatoria para administradores con `REQUIRE_ADMIN_2FA=true`) y bloqueo persistente de `LOGIN_LOCK_MINUTES` (5) tras `LOGIN_MAX_ATTEMPTS` (5) fallos por cuenta y conexión. No hay aislamiento por cliente: los cuatro roles son internos del mismo Suministrador; no se deben entregar como un portal al Cliente Final.
 
 ### Estado privado y cambios de modo
 
@@ -128,7 +128,7 @@ Requiere autorización de exposición (`PUBLICAR`), hospedaje nacional o excepci
 
 Desde LAN utiliza el mismo dominio y certificado público mediante DNS dividido o NAT hairpin correctamente configurados. No añadas un origen HTTP para solucionar una advertencia. Si hay CGNAT, resolver con el proveedor/hospedaje nacional; no se crea un túnel extranjero automáticamente.
 
-Antes de abrir a Internet: restringe acceso administrativo, valora VPN propia/nacional o pasarela de identidad con MFA y revisión de residencia. **Hay cuentas individuales y roles internos; no hay MFA ni portal aislado por cliente.** Asigna mínimo privilegio y no entregues cuentas internas a Clientes Finales. El firewall, DNS, renovación real, disponibilidad pública y confianza de teléfonos se deben probar en el destino.
+Antes de abrir a Internet: restringe acceso administrativo, valora VPN propia/nacional o pasarela de identidad con MFA y revisión de residencia. **Hay cuentas individuales, roles internos y verificación en dos pasos TOTP (actívala en todas las cuentas administrativas o define `REQUIRE_ADMIN_2FA=true`); no hay llaves de seguridad/SSO ni portal aislado por cliente.** Asigna mínimo privilegio y no entregues cuentas internas a Clientes Finales. El firewall, DNS, renovación real, disponibilidad pública y confianza de teléfonos se deben probar en el destino.
 
 ## 5. Control diario y publicación del paquete
 
@@ -174,7 +174,7 @@ Con estado del panel, establece temporalmente `BACKUP_KEY_FILE` desde `control.j
 5. Para adoptar, crea **otro directorio de datos** protegido con la copia validada como `facturacion.sqlite`; revisa `control.json:dataDir` para apuntar a él con el servicio parado. Nunca dejes un `-wal/-shm` anterior junto a la nueva BD. No sobrescribas ni elimines el original o las claves.
 6. Arranca, repite HTTPS/integridad y documenta pérdida máxima observada y tiempo de recuperación. Conserva evidencia de aprobación. El programa no promete RPO/RTO sin esa prueba real.
 
-Programa backups según un RPO aprobado; conserva al menos una copia cifrada desconectada/inmutable en ubicación permitida, clave en otro medio y ensayos regulares. Define rotación/retención: el programa no purga automáticamente copias fiscales ni recupera claves perdidas.
+Programa backups según un RPO aprobado; conserva al menos una copia cifrada desconectada/inmutable en ubicación permitida, clave en otro medio y ensayos regulares. Define rotación/retención: en producción el servidor crea una copia cifrada diaria desde `BACKUP_HOUR` (2) si existe `BACKUP_KEY_FILE` (`BACKUP_AUTO=false` la desactiva) y conserva **en el directorio local** las `BACKUP_KEEP` (30) más recientes, borrando las anteriores; usa `BACKUP_KEEP=0` si la retención fiscal la gestiona el operador. La rotación local no sustituye las copias desconectadas ni recupera claves perdidas.
 
 ## 7. Despliegue técnico alternativo
 

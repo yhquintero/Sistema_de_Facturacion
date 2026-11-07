@@ -1,6 +1,8 @@
 import {test,before,after} from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import http from 'node:http';import {randomBytes} from 'node:crypto';
 import {readConfig,validateRuntime} from '../server/config';import {hashPassword,verifyPassword,parsePasswordHash} from '../server/security/password';import {createLimiter} from '../server/security/http';import type {Response} from 'express';
 const root=fs.mkdtempSync(path.join(os.tmpdir(),'nexo-security-'));process.env.DATA_DIR=root;process.env.SEED_DEMO='true';
+// El bloqueo persistente por usuario+conexión (5 intentos) se prueba en two-factor.test.ts; aquí se aísla el limitador en memoria.
+process.env.LOGIN_MAX_ATTEMPTS='50';
 const {createApp}=await import('../server/app'),{db}=await import('../server/db'),{publishChange,closeRealtime,realtimeConnectionCount}=await import('../server/realtime');
 const password=randomBytes(24).toString('hex'),origin='https://billing.example.test';const config=readConfig({NODE_ENV:'production',TLS_MODE:'proxy',PUBLIC_ORIGIN:origin,TRUST_PROXY:'127.0.0.1/32',DATA_LOCATION_COUNTRY:'CU',DATA_CONTROLLER_NAME:'Responsable sintético',PRIVACY_CONTACT:'test@example.invalid'});
 let server:http.Server,base:string;

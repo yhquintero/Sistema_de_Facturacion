@@ -1,0 +1,135 @@
+Nexo · Sistema de Facturación — Licencia de software propietario
+Nexo · Sistema de Facturación — Proprietary Software License
+
+Copyright (c) 2026 yhquintero (https://github.com/yhquintero).
+Todos los derechos reservados. All rights reserved.
+
+English version below.
+
+======================================================================
+ESPAÑOL
+======================================================================
+
+1. Titularidad
+
+Nexo · Sistema de Facturación —incluidos su código fuente y objeto, la aplicación Web instalable (PWA), el servidor, el panel de control PowerShell, las herramientas, las plantillas de documentos, la documentación, los diseños, las imágenes propias y el nombre y el logotipo «Nexo»— (en adelante, el «Software») es propiedad de yhquintero (en adelante, el «Titular») y está protegido por la legislación de propiedad intelectual y por los tratados internacionales aplicables.
+
+2. Código visible, no código abierto
+
+Que este repositorio sea público no convierte el Software en software libre ni de código abierto. No se concede ninguna licencia ni ningún derecho, expreso o implícito, salvo los indicados expresamente en este documento.
+
+3. Usos permitidos sin licencia de uso
+
+Sin necesidad de una licencia de uso solo se permite:
+
+  a) ver el código fuente en GitHub;
+  b) bifurcar (fork) el repositorio dentro de GitHub, en la medida en que lo permitan los Términos de Servicio de GitHub, con el único fin de ver el código o de proponer contribuciones al repositorio original mediante pull requests.
+
+4. Usos que requieren autorización
+
+Salvo autorización previa y por escrito del Titular, queda prohibido:
+
+  a) instalar, ejecutar o usar el Software en un negocio, para terceros o con fines comerciales;
+  b) copiar, reproducir, modificar, traducir, adaptar o crear obras derivadas del Software, en todo o en parte;
+  c) distribuir, publicar, sublicenciar, vender, alquilar o prestar el Software, u ofrecerlo como servicio a terceros (incluido el alojamiento o el modelo SaaS);
+  d) eludir, desactivar o alterar las medidas técnicas de protección o de control de acceso del Software;
+  e) suprimir u ocultar los avisos de derechos de autor, de marca o de licencia;
+  f) usar el nombre o el logotipo «Nexo» para identificar otros productos o servicios.
+
+5. Licencias de uso
+
+El derecho a usar el Software se obtiene únicamente mediante una licencia de uso otorgada por escrito por el Titular y se rige por el plazo, el tipo, los límites y las condiciones de esa licencia. Una licencia de uso autoriza el uso del Software, pero no transmite su propiedad ni el derecho a modificar o redistribuir su código fuente.
+
+El Software es una herramienta de gestión. No constituye asesoramiento fiscal, contable ni jurídico, no está certificado ni aceptado por la ONAT u otra autoridad, y su uso no sustituye las obligaciones legales de quien lo utiliza.
+
+6. Contribuciones
+
+Quien envíe una contribución (pull request, parche, issue, comentario o sugerencia) declara que es su autor o que tiene derecho a aportarla, y concede al Titular una licencia mundial, perpetua, irrevocable, gratuita, no exclusiva y transferible para usar, reproducir, modificar, sublicenciar y distribuir esa contribución como parte del Software o de otros productos, sin obligación de compensación. Contribuir no otorga a quien contribuye ningún derecho de uso sobre el Software.
+
+7. Componentes de terceros
+
+Los componentes de terceros incluidos en el repositorio se rigen por sus propias licencias, que prevalecen sobre este documento en lo que respecta a dichos componentes. La relación está en THIRD_PARTY_NOTICES.md.
+
+8. Exclusión de garantías
+
+En la medida máxima permitida por la ley aplicable, el Software se proporciona «tal cual» y «según disponibilidad», sin garantías de ningún tipo, expresas o implícitas, incluidas las de comerciabilidad, idoneidad para un fin concreto y no infracción. Esta cláusula no limita las garantías que el Titular otorgue por escrito en una licencia de uso ni los derechos que la ley reconozca como irrenunciables.
+
+9. Limitación de responsabilidad
+
+En la medida máxima permitida por la ley aplicable, el Titular no será responsable de daños indirectos, incidentales, especiales, consecuentes o punitivos, ni de la pérdida de datos, ingresos, beneficios o negocio derivada del uso o de la imposibilidad de usar el Software.
+
+10. Terminación
+
+Cualquier uso que incumpla esta licencia carece de autorización y extingue automáticamente los permisos concedidos, sin perjuicio de las acciones legales que correspondan al Titular.
+
+11. Idioma
+
+Este documento se ofrece en español y en inglés. En caso de discrepancia, prevalece la versión en español.
+
+12. Contacto
+
+Para obtener una licencia de uso o permisos adicionales, contacta al Titular a través de https://github.com/yhquintero.
+
+======================================================================
+ENGLISH
+======================================================================
+
+1. Ownership
+
+Nexo · Sistema de Facturación —including its source and object code, the installable Web application (PWA), the server, the PowerShell control panel, the tools, the document templates, the documentation, the designs, its own images, and the "Nexo" name and logo— (the "Software") is owned by yhquintero (the "Owner") and is protected by intellectual property laws and applicable international treaties.
+
+2. Source-visible, not open source
+
+The fact that this repository is public does not make the Software free or open-source software. No license or right, express or implied, is granted except as expressly stated in this document.
+
+3. Uses permitted without a usage license
+
+Without a usage license you may only:
+
+  a) view the source code on GitHub;
+  b) fork the repository within GitHub, to the extent permitted by the GitHub Terms of Service, solely to view the code or to propose contributions to the original repository through pull requests.
+
+4. Uses that require authorization
+
+Unless you have the Owner's prior written authorization, you may not:
+
+  a) install, run, or use the Software in a business, for third parties, or for commercial purposes;
+  b) copy, reproduce, modify, translate, adapt, or create derivative works of the Software, in whole or in part;
+  c) distribute, publish, sublicense, sell, rent, or lend the Software, or offer it as a service to third parties (including hosting or SaaS);
+  d) circumvent, disable, or alter the Software's technical protection or access-control measures;
+  e) remove or obscure copyright, trademark, or license notices;
+  f) use the "Nexo" name or logo to identify other products or services.
+
+5. Usage licenses
+
+The right to use the Software is obtained only through a usage license granted in writing by the Owner and is governed by the term, type, limits, and conditions of that license. A usage license authorizes use of the Software but does not transfer its ownership or any right to modify or redistribute its source code.
+
+The Software is a management tool. It is not tax, accounting, or legal advice, it is not certified or accepted by ONAT or any other authority, and using it does not replace the user's legal obligations.
+
+6. Contributions
+
+By submitting a contribution (pull request, patch, issue, comment, or suggestion), you represent that you are its author or have the right to submit it, and you grant the Owner a worldwide, perpetual, irrevocable, royalty-free, non-exclusive, and transferable license to use, reproduce, modify, sublicense, and distribute that contribution as part of the Software or of other products, with no obligation to compensate you. Contributing does not grant you any right to use the Software.
+
+7. Third-party components
+
+Third-party components included in the repository are governed by their own licenses, which prevail over this document with respect to those components. They are listed in THIRD_PARTY_NOTICES.md.
+
+8. Disclaimer of warranties
+
+To the maximum extent permitted by applicable law, the Software is provided "as is" and "as available", without warranties of any kind, express or implied, including warranties of merchantability, fitness for a particular purpose, and non-infringement. This clause does not limit any warranty the Owner grants in writing in a usage license or any rights that the law makes non-waivable.
+
+9. Limitation of liability
+
+To the maximum extent permitted by applicable law, the Owner shall not be liable for any indirect, incidental, special, consequential, or punitive damages, or for any loss of data, revenue, profits, or business arising from the use of, or inability to use, the Software.
+
+10. Termination
+
+Any use that breaches this license is unauthorized and automatically terminates the permissions granted, without prejudice to any legal action available to the Owner.
+
+11. Language
+
+This document is provided in Spanish and English. In case of any discrepancy, the Spanish version prevails.
+
+12. Contact
+
+To obtain a usage license or additional permissions, contact the Owner at https://github.com/yhquintero.
