@@ -10,3 +10,17 @@ test('panel-instance health handshake identifies the new backend and private fil
 });
 
 test('demo escape hatch cannot start a private-marked database even when the operator sets ALLOW_PUBLIC_DEMO',()=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),'nexo-demo-gate-'));try{const result=spawnSync(process.execPath,['--import','tsx','server/index.ts','--production'],{encoding:'utf8',timeout:15000,env:{...process.env,NODE_ENV:'production',TLS_MODE:'off',HOST:'127.0.0.1',ALLOW_PUBLIC_DEMO:'true',ALLOW_INSECURE_LOCALHOST:'false',SEED_DEMO:'false',APP_PASSWORD:'',APP_PASSWORD_FILE:'',APP_PASSWORD_HASH_FILE:'',DATA_DIR:root,PUBLIC_ORIGIN:'',TRUST_PROXY:'',CONTROL_SHUTDOWN_FILE:''}});assert.notEqual(result.status,0);assert.match(result.stderr,/ALLOW_PUBLIC_DEMO solo admite una base marcada/);}finally{fs.rmSync(root,{recursive:true,force:true});}});
+
+test('hash-file bootstrap creates a personal admin and later restarts work with stored accounts but no bootstrap secret',async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'nexo-account-startup-')),data=path.join(root,'data'),password='PUBLIC-STARTUP-ACCOUNT-FIXTURE-2026',hashPath=path.join(root,'access.scrypt');
+  const {hashPassword}=await import('../server/security/password');fs.writeFileSync(hashPath,await hashPassword(password),{mode:0o600});
+  try{for(const first of [true,false]){
+    const reservation=http.createServer();await new Promise<void>(r=>reservation.listen(0,'127.0.0.1',r));const port=(reservation.address() as {port:number}).port;await new Promise<void>(r=>reservation.close(()=>r()));const signal=path.join(root,randomUUID()+'.signal');
+    const child=spawn(process.execPath,['--import','tsx','server/index.ts','--production'],{env:{...process.env,NODE_ENV:'production',HOST:'127.0.0.1',PORT:String(port),TLS_MODE:'off',ALLOW_INSECURE_LOCALHOST:'true',ALLOW_PUBLIC_DEMO:'false',SEED_DEMO:'false',PUBLIC_ORIGIN:'',ALLOWED_ORIGINS:'',TRUST_PROXY:'',APP_PASSWORD:'',APP_PASSWORD_HASH_FILE:first?hashPath:'',APP_PASSWORD_FILE:'',ADMIN_USERNAME:'admin',DATA_DIR:data,DATA_CONTROLLER_NAME:'FIXTURE CU DECLARATION ONLY',PRIVACY_CONTACT:'fixture@example.invalid',DATA_LOCATION_COUNTRY:'CU',CONTROL_SHUTDOWN_FILE:signal,CONTROL_INSTANCE_ID:randomUUID()},stdio:['ignore','pipe','pipe']});
+    let output='';const exited=new Promise<number|null>(r=>child.once('exit',r));
+    try{await new Promise<void>((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('No startup: '+output)),12000);child.stdout.on('data',chunk=>{output+=chunk;if(output.includes('Web + API + tiempo real')){clearTimeout(timer);resolve();}});child.stderr.on('data',chunk=>output+=chunk);child.once('exit',code=>{clearTimeout(timer);reject(new Error(`Startup ${code}: ${output}`));});});
+      const login=await fetch(`http://127.0.0.1:${port}/api/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'admin',password})});assert.equal(login.status,200,await login.clone().text());const session=await login.json();assert.equal(session.user.role,'admin');assert.equal(session.csrfToken.length,43);
+      fs.writeFileSync(signal,'shutdown',{mode:0o600});const timer=setTimeout(()=>child.kill('SIGKILL'),12000);const code=await exited;clearTimeout(timer);assert.equal(code,0,output);
+    }finally{if(child.exitCode===null){child.kill('SIGTERM');await exited;}}
+  }}finally{fs.rmSync(root,{recursive:true,force:true});}
+});

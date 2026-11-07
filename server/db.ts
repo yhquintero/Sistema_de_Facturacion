@@ -16,6 +16,7 @@ import {
 } from '../shared/types';
 import { DEFAULT_SERVICE_CATALOG } from '../shared/catalogPresets';
 import { assertValidSignature, createSampleSignatureDataUrl } from './utils/signaturePng';
+import { currentActor } from './actor';
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(process.cwd(), 'data'));
 if (!fs.existsSync(DATA_DIR)) {
@@ -982,6 +983,8 @@ db.exec(`
   );
   UPDATE invoices SET is_demo = 1 WHERE id IN ('inv-01', 'inv-02', 'inv-03');
 `);
+const eventColumns = new Set((db.prepare('PRAGMA table_info(invoice_events)').all() as { name: string }[]).map(c => c.name));
+for (const name of ['actor_id', 'actor_name']) if (!eventColumns.has(name)) db.exec(`ALTER TABLE invoice_events ADD COLUMN ${name} TEXT NOT NULL DEFAULT ''`);
 
 type Row = Record<string, SQLInputValue>;
 type Table = 'supplier_profile' | 'clients' | 'contracts' | 'service_catalog' | 'invoices';
@@ -993,7 +996,7 @@ function persist(table: Table, record: Row) {
 }
 function transaction<T>(action: () => T): T { db.exec('BEGIN IMMEDIATE'); try { const result = action(); db.exec('COMMIT'); return result; } catch (error) { db.exec('ROLLBACK'); throw error; } }
 function ensureUnique(table: Table, column: 'code' | 'contract_number' | 'invoice_number', value: string, id = '') { if (db.prepare(`SELECT id FROM ${table} WHERE ${column} = ? AND id != ?`).get(value, id)) throw new Error(`Ya existe un registro con el número o código «${value}».`); }
-function audit(invoiceId: string, event: string, details: object = {}) { db.prepare('INSERT INTO invoice_events (invoice_id,event_type,occurred_at,details_json) VALUES (?,?,?,?)').run(invoiceId, event, new Date().toISOString(), JSON.stringify(details)); }
+function audit(invoiceId: string, event: string, details: object = {}) { const actor = currentActor(); db.prepare('INSERT INTO invoice_events (invoice_id,event_type,occurred_at,details_json,actor_id,actor_name) VALUES (?,?,?,?,?,?)').run(invoiceId, event, new Date().toISOString(), JSON.stringify(details), actor.id, actor.name); }
 
 export function getWorkspaceInfo() { return { demo: db.prepare("SELECT value FROM app_metadata WHERE key='demo_mode'").get()?.value === 'true' }; }
 export function getSupplierProfile(): SupplierProfile { return camelRow(db.prepare('SELECT * FROM supplier_profile WHERE id=1').get()!) as unknown as SupplierProfile; }
@@ -1186,7 +1189,7 @@ export function getInvoiceIntegrity(id: string) {
   const computedHash = invoiceDocumentHash(invoice);
   return { signed: invoice.signatureStatus === 'firmada_cliente', algorithm: 'SHA-256', recordedHash: invoice.signatureDocumentHash || '', computedHash, matches: !!invoice.signatureDocumentHash && invoice.signatureDocumentHash === computedHash, signedAt: invoice.clientSignedAt, consent: row.signature_consent_json ? JSON.parse(String(row.signature_consent_json)) : null, isDemo: invoice.isDemo };
 }
-export function getInvoiceEvents(id: string) { if (!getInvoiceById(id)) throw new Error('Factura no encontrada.'); return db.prepare('SELECT event_type,occurred_at,details_json FROM invoice_events WHERE invoice_id=? ORDER BY id').all(id).map(r => ({ type: r.event_type, occurredAt: r.occurred_at, details: JSON.parse(String(r.details_json)) })); }
+export function getInvoiceEvents(id: string) { if (!getInvoiceById(id)) throw new Error('Factura no encontrada.'); return db.prepare('SELECT event_type,occurred_at,details_json,actor_id,actor_name FROM invoice_events WHERE invoice_id=? ORDER BY id').all(id).map(r => ({ type: r.event_type, occurredAt: r.occurred_at, actorId: String(r.actor_id || ''), actorName: String(r.actor_name || ''), details: JSON.parse(String(r.details_json)) })); }
 
 // Freeze and clearly label the preloaded synthetic signatures. They are not real client acceptances.
 for (const row of db.prepare("SELECT id FROM invoices WHERE signature_status='firmada_cliente' AND document_hash=''").all()) {

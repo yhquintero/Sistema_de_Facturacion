@@ -52,7 +52,7 @@ function Get-NodeEnvironment($Config) {
     return @{
         NODE_ENV = 'production'; HOST = '127.0.0.1'; PORT = [string]$Config.internalPort
         DATA_DIR = [string]$Config.dataDir; SEED_DEMO = 'false'; ALLOW_PUBLIC_DEMO = 'false'
-        APP_PASSWORD = ''; APP_PASSWORD_FILE = ''; APP_PASSWORD_HASH_FILE = [string]$Config.passwordHashFile
+        ADMIN_USERNAME = 'admin'; APP_PASSWORD = ''; APP_PASSWORD_FILE = ''; APP_PASSWORD_HASH_FILE = [string]$Config.passwordHashFile
         BACKUP_KEY_FILE = [string]$Config.backupKeyFile; TLS_MODE = 'proxy'; PUBLIC_ORIGIN = [string]$Config.origin
         ALLOWED_ORIGINS = [string]$Config.allowedOrigins; TRUST_PROXY = '127.0.0.1/32,::1/128'
         FRAME_ANCESTORS = "'none'"; ALLOW_INSECURE_LOCALHOST = 'false'

@@ -17,7 +17,7 @@ export function installHttpSecurity(app: Express, config: RuntimeConfig) {
     res.setHeader('Content-Security-Policy', csp);
     if (config.production && req.secure) res.setHeader('Strict-Transport-Security', `max-age=${config.hstsSeconds}`);
     if (req.path.startsWith('/api/') || req.path === '/' || req.path.endsWith('.html') || req.path === '/sw.js') res.setHeader('Cache-Control', 'no-store');
-    res.on('finish', () => { if (req.path.startsWith('/api/') && req.path !== '/api/health') securityLog('http', { requestId: id, peer: peerId(req), status: res.statusCode, method: req.method, route: String(req.route?.path || '/api/unmatched'), actor: res.locals.authenticated ? 'workspace-admin' : 'anonymous' }); });
+    res.on('finish', () => { if (req.path.startsWith('/api/') && req.path !== '/api/health') securityLog('http', { requestId: id, peer: peerId(req), status: res.statusCode, method: req.method, route: String(req.route?.path || '/api/unmatched'), actor: res.locals.auth?.user?.id || (res.locals.auth?.open ? 'demo' : 'anonymous') }); });
     const publicRoute = ['/api/health', '/api/privacy'].includes(req.path);
     if (config.publicOrigin && !publicRoute) {
       const hosts = new Set([...config.allowedOrigins].map(v => new URL(v).host));
@@ -43,12 +43,13 @@ export function installHttpSecurity(app: Express, config: RuntimeConfig) {
 }
 export function createLimiter(limit: number, windowMs: number, maxKeys = 5000) {
   const windows = new Map<string, { count: number; expires: number }>();
-  return (key: string, res: Response) => {
+  const allow = (key: string, res: Response) => {
     const now = Date.now(); for (const [id, state] of windows) if (state.expires <= now) windows.delete(id);
     if (!windows.has(key) && windows.size >= maxKeys) { res.setHeader('Retry-After', '60'); res.status(429).json({ error: 'Servicio ocupado. Inténtalo más tarde.' }); return false; }
     const state = windows.get(key) || { count: 0, expires: now + windowMs }; state.count++; windows.set(key, state);
     if (state.count > limit) { res.setHeader('Retry-After', String(Math.ceil((state.expires - now) / 1000))); res.status(429).json({ error: 'Demasiadas solicitudes. Respeta el tiempo de reintento.' }); return false; }
     return true;
   };
+  return Object.assign(allow, { reset: (key: string) => windows.delete(key) });
 }
 export const isWrite = (req: Request) => !['GET', 'HEAD', 'OPTIONS'].includes(req.method);

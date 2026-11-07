@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import { createEncryptedBackup, decryptBackupToNewFile, generateBackupKey } from '../server/security/backups';
 const root = fs.mkdtempSync(path.join(os.tmpdir(),'nexo-backup-')), source = path.join(root,'source.sqlite'), key = path.join(root,'secrets','backup.key'), backups = path.join(root,'backups');
@@ -28,4 +29,25 @@ test('key generation is exclusive, backup keys must be separate and malformed ke
   const original=fs.readFileSync(key);assert.throws(()=>generateBackupKey(key));assert.deepEqual(fs.readFileSync(key),original);
   const inside=path.join(backups,'forbidden.key');generateBackupKey(inside);await assert.rejects(createEncryptedBackup(source,backups,inside),/no puede guardarse/);
   const short=path.join(root,'short.key');fs.writeFileSync(short,'not-a-32-byte-key');await assert.rejects(createEncryptedBackup(source,backups,short),/32 bytes/);
+});
+
+
+test('encrypted and explicit lab backups retain accounts but exclude sessions without touching live sessions',async()=>{
+  const directory=path.join(root,'accounts');fs.mkdirSync(directory,{mode:0o700});
+  const active=path.join(directory,'facturacion.sqlite'),live=new DatabaseSync(active);
+  try {
+    live.exec("CREATE TABLE users(id TEXT PRIMARY KEY,username TEXT,password_hash TEXT); CREATE TABLE user_sessions(token_hash TEXT,user_id TEXT,csrf_token TEXT); INSERT INTO users VALUES ('fixture','public-fixture','PUBLIC-NON-CREDENTIAL-HASH'); INSERT INTO user_sessions VALUES ('PUBLIC-SESSION-HASH','fixture','PUBLIC-SESSION-CSRF-DO-NOT-RESTORE');");
+    const encrypted=await createEncryptedBackup(active,path.join(directory,'backups'),key),restored=path.join(directory,'restored.sqlite');
+    await decryptBackupToNewFile(encrypted,restored,key);
+    const plain=spawnSync(process.execPath,['--import','tsx','scripts/backup.ts','--allow-plaintext'],{env:{...process.env,NODE_ENV:'test',DATA_DIR:directory,BACKUP_KEY_FILE:''},encoding:'utf8',timeout:20_000});
+    assert.equal(plain.status,0,plain.stderr);
+    const lab=path.join(directory,'backups',fs.readdirSync(path.join(directory,'backups')).find(f=>f.endsWith('.sqlite'))!);
+    for(const filename of [restored,lab]) {
+      const copy=new DatabaseSync(filename,{readOnly:true});
+      try {assert.equal(copy.prepare('SELECT COUNT(*) AS n FROM users').get()?.n,1);assert.equal(copy.prepare('SELECT COUNT(*) AS n FROM user_sessions').get()?.n,0);}finally{copy.close();}
+      assert.equal(fs.readFileSync(filename).includes(Buffer.from('PUBLIC-SESSION-CSRF-DO-NOT-RESTORE')),false);
+    }
+    assert.equal(live.prepare('SELECT COUNT(*) AS n FROM user_sessions').get()?.n,1);
+    assert.equal(live.prepare('SELECT COUNT(*) AS n FROM users').get()?.n,1);
+  } finally {live.close();}
 });

@@ -1,6 +1,6 @@
 # Operación segura · Web + Servidor + Móvil
 
-**Alcance:** Nexo, un espacio de administración de un Suministrador TCP en Cuba. El teléfono utiliza la misma web/PWA y base del servidor; **no es un APK ni un portal multicliente aislado**. Fecha de revisión: 2026-11-04.
+**Alcance:** Nexo, un espacio de administración de un Suministrador TCP en Cuba. El teléfono utiliza la misma web/PWA y base del servidor; **no es un APK ni un portal multicliente aislado**. Revisión inicial: 2026-11-04; integración técnica de cuentas/roles: 2026-11-06.
 
 ## 1. Antes de datos reales
 
@@ -30,6 +30,25 @@ La primera ejecución pregunta país físico, responsable/contacto y una frase d
 Se comprueba Node, se ejecuta `npm ci` solo al pedir `-InstallDependencies`, se compila salvo `-NoBuild`, se valida Caddy, se inicia el backend, se verifica una **identidad de instancia** sobre salud de loopback y después HTTPS con cadena y nombre. Un servicio ajeno que conteste en el mismo puerto no basta para declarar el nuevo backend listo. Un error de inicio detiene únicamente procesos propios comprobados.
 
 **No supone instalación validada en tu Windows.** En Arena se comprobó gramática PowerShell mediante tree-sitter; el parser real/DACL/ciclo Caddy se ejecutaron satisfactoriamente en CI Windows con fixtures el 2026-11-06; ver VERIFICACION.md. Esa VM no sustituye el equipo del usuario ni prueba confianza interactiva de CA, firewall o teléfonos físicos. Ejecuta primero con fixtures en el equipo de destino.
+
+### Cuentas personales y recuperación
+
+La frase inicial del panel crea la cuenta **`admin`** solo si no hay cuentas. Cada persona del equipo debe recibir su propio usuario/rol desde **Usuarios y acceso**. Nuevas contraseñas: 14–1024 caracteres; las temporales deben cambiarse antes de acceder a datos. **Mi cuenta** solicita la contraseña actual y cierra las demás sesiones. El administrador puede revocar sesiones o desactivar una cuenta; el servidor consulta rol/estado en cada solicitud. Gestor administra el auxiliar fiscal, Lectura solo lo consulta/exporta y Técnico no accede a él. Solo administradores ven usuarios, eventos de acceso y estado de seguridad. Matriz completa en README.
+
+Las cuentas y hashes existentes de PR #2 se preservan. Los hashes antiguos scrypt/NFKC se verifican sin cambiar su contraseña; las nuevas usan scrypt reforzado. El hash de arranque sirve **solo para la primera cuenta**, no es una contraseña maestra ni un mecanismo de recuperación. Node puede arrancar sin esa variable cuando ya hay cuentas persistidas; el panel conserva su configuración/archivos privados. La compatibilidad de bootstrap en claro no es la opción recomendada.
+
+Si pierdes acceso, usa consola local autorizada, no chat ni una URL. Detén el servicio para una recuperación controlada, conserva evidencia y confirma **la ruta de la base existente**. Para el estado predeterminado del panel:
+
+```powershell
+$config = Get-Content (Join-Path $env:LOCALAPPDATA 'NexoFacturacion\control.json') -Raw | ConvertFrom-Json
+$env:DATA_DIR = $config.dataDir  # con -StateDirectory personalizado, lee SU control.json
+# Sustituye admin por el usuario real. --admin lo activa/promueve o lo crea si no existe.
+npm run user:reset-password -- admin --admin
+```
+
+La contraseña aleatoria se muestra una sola vez en la consola: no la redirijas a logs compartidos y entrégala por un canal seguro. Se exige cambio en el primer acceso y se revocan las sesiones de esa cuenta. Arranca el servicio y comprueba HTTPS/login/rol. **Regenerar `access.scrypt` o cambiar `APP_PASSWORD` no cambia contraseñas de cuentas que ya existen.** El acceso al SO y a SQLite sigue siendo privilegiado y exige DACL/cifrado de disco.
+
+Las sesiones se guardan con token bearer hashado y CSRF propio, con 30 min de inactividad HTTP / 8 h absolutas y límites 20/cuenta, 256 globales. El arranque real invalida todas las sesiones guardadas; conserva cuentas y datos. La copia elimina sesiones **en la instantánea**, nunca en la base activa. No hay MFA ni aislamiento por cliente: los cuatro roles son internos del mismo Suministrador; no se deben entregar como un portal al Cliente Final.
 
 ### Estado privado y cambios de modo
 
@@ -74,7 +93,7 @@ Requiere autorización de exposición (`PUBLICAR`), hospedaje nacional o excepci
 
 Desde LAN utiliza el mismo dominio y certificado público mediante DNS dividido o NAT hairpin correctamente configurados. No añadas un origen HTTP para solucionar una advertencia. Si hay CGNAT, resolver con el proveedor/hospedaje nacional; no se crea un túnel extranjero automáticamente.
 
-Antes de abrir a Internet: restringe acceso administrativo, valora VPN propia/nacional o pasarela de identidad con MFA y revisión de residencia. **No existe MFA/RBAC individual dentro de Nexo en esta entrega.** No distribuyas la contraseña general a Clientes Finales. El firewall, DNS, renovación real, disponibilidad pública y confianza de teléfonos se deben probar en el destino.
+Antes de abrir a Internet: restringe acceso administrativo, valora VPN propia/nacional o pasarela de identidad con MFA y revisión de residencia. **Hay cuentas individuales y roles internos; no hay MFA ni portal aislado por cliente.** Asigna mínimo privilegio y no entregues cuentas internas a Clientes Finales. El firewall, DNS, renovación real, disponibilidad pública y confianza de teléfonos se deben probar en el destino.
 
 ## 5. Control diario y publicación del paquete
 
@@ -98,7 +117,7 @@ Opcionalmente, un administrador puede registrar una tarea **al iniciar sesión**
 
 ## 6. Respaldo cifrado y recuperación ensayable
 
-Formato `NXBK0001`, IV aleatorio de 12 bytes, tag AES-256-GCM de 16 bytes, ciphertext y manifiesto SHA-256. La instantánea SQLite usa `VACUUM INTO` sobre datos consistentes, en subdirectorio temporal privado que se retira al terminar. Una clave de 32 bytes **separada de backups** es imprescindible; perderla impide recuperar. La contraseña de acceso no la sustituye. El cifrado de backup no cifra la BD activa ni los archivos PDF/DOCX/XLSX descargados.
+Formato `NXBK0001`, IV aleatorio de 12 bytes, tag AES-256-GCM de 16 bytes, ciphertext y manifiesto SHA-256. La instantánea SQLite usa `VACUUM INTO` sobre datos consistentes, en subdirectorio temporal privado que se retira al terminar. Se conservan cuentas/hashes/eventos, pero se eliminan y compactan las sesiones únicamente en la copia: un backup no desconecta usuarios activos ni una restauración reabre sesiones antiguas. Una clave de 32 bytes **separada de backups** es imprescindible; perderla impide recuperar. La contraseña de acceso no la sustituye. El cifrado de backup no cifra la BD activa ni los archivos PDF/DOCX/XLSX descargados.
 
 Fuera del panel, `.env`/variables deben apuntar a claves y datos correctos:
 
@@ -148,8 +167,9 @@ Verifica disponibilidad/vulnerabilidades y fija **digest** de las imágenes para
 
 ## 8. Incidentes y comprobaciones
 
-- Revisa `data/logs/security.ndjson`: ID de solicitud, ruta de plantilla, estado, actor compartido, eventos y peer seudonimizado. No registra contraseñas, cookies, cuerpos, firmas o IP en claro. Rotación aproximada de 10 MiB × 6 archivos; no es SIEM ni registro sellado. Los logs de stdout del panel requieren conservación/rotación operacional.
-- Ante incidente: restringe exposición, conserva evidencia/backup sin sobrescribir, revoca acceso rotando hash y reiniciando (sesiones en memoria), evalúa alcance y obligaciones de notificación con el responsable/autoridad competente. No borres huellas. Ley 149 art. 48 no equivale automáticamente al plazo europeo de 72 horas.
+- Revisa `data/logs/security.ndjson`: ID de solicitud, ruta de plantilla, estado, ID del actor autenticado cuando procede, eventos y peer seudonimizado. No registra contraseñas, cookies, cuerpos, firmas o IP en claro. Rotación aproximada de 10 MiB × 6 archivos; no es SIEM ni registro sellado. Los logs de stdout del panel requieren conservación/rotación operacional.
+- Ante incidente: restringe exposición, conserva evidencia/backup sin sobrescribir, revoca las sesiones/cuentas afectadas desde Usuarios y acceso o recuperación local; un reinicio invalida todas las sesiones, pero **no cambia contraseñas** (rotar el hash inicial tampoco las restablece), evalúa alcance y obligaciones de notificación con el responsable/autoridad competente. No borres huellas. Ley 149 art. 48 no equivale automáticamente al plazo europeo de 72 horas.
 - Verifica SO/Defender/EDR, actualizaciones, software/licencias/drivers firmados, BitLocker, cortafuegos, restauración, reloj, DNS/certificados y cuentas con privilegios mínimos. No se inspeccionaron tus equipos.
+- Revisa también **Actividad de acceso** (solo administradores): nombres/usuarios y cambios de cuentas son datos personales; conserva evidencia según política. La tabla mantiene hasta 5000 eventos recientes, no un archivo fiscal/pericial inmutable. El peer nuevo es seudonimizado; los registros históricos heredados pueden contener IP en claro y requieren revisión/retención aprobada.
 - Móvil: bloqueo, cifrado del dispositivo y navegador actualizados, nada de perfiles/CA desconocidos, ni claves de clientes en notas de soporte. PWA no prueba ausencia de root/jailbreak y no aporta pinning nativo.
 - SSE autenticado notifica invalidaciones; reconexión vuelve a consultar. No es un protocolo offline de edición. Los formularios no se envían sin conexión; revisa conflictos de edición. Los clientes/contratos/catálogo no tienen control de versión general por usuario: evita edición simultánea del mismo registro.

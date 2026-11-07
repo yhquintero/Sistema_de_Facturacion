@@ -15,6 +15,7 @@ services:
       TLS_MODE: proxy
       PUBLIC_ORIGIN: ${NEXO_PUBLIC_ORIGIN:?Define https://tu-dominio-propio}
       TRUST_PROXY: 172.28.0.2/32
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       APP_PASSWORD_HASH_FILE: /run/secrets/nexo_access
       BACKUP_KEY_FILE: /run/secrets/nexo_backup
       DATA_CONTROLLER_NAME: ${DATA_CONTROLLER_NAME:?Identifica al Suministrador responsable}

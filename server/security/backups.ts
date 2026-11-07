@@ -6,6 +6,19 @@ import { DatabaseSync } from 'node:sqlite';
 const MAGIC = Buffer.from('NXBK0001'); const HEADER_BYTES = 36;
 function readKey(file: string) { const key = fs.readFileSync(file); if (key.length !== 32) throw new Error('BACKUP_KEY_FILE debe contener exactamente 32 bytes aleatorios.'); return key; }
 export function generateBackupKey(file: string) { fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 }); fs.writeFileSync(file, randomBytes(32), { flag: 'wx', mode: 0o600 }); }
+/** Only the new snapshot is modified: backing up must never log out live users. */
+export function createSessionlessSnapshot(source: string, snapshot: string) {
+  if (fs.existsSync(snapshot)) throw new Error('La instantánea debe ser un archivo NUEVO.');
+  const db = new DatabaseSync(source, { readOnly: true });
+  try { db.prepare('VACUUM INTO ?').run(snapshot); } finally { db.close(); }
+  fs.chmodSync(snapshot, 0o600);
+  const copy = new DatabaseSync(snapshot);
+  try {
+    if (copy.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_sessions'").get()) {
+      copy.exec('PRAGMA secure_delete=ON; DELETE FROM user_sessions; VACUUM;');
+    }
+  } finally { copy.close(); }
+}
 export async function createEncryptedBackup(source: string, directory: string, keyFile: string) {
   const key = readKey(keyFile); const relative = path.relative(path.resolve(directory), path.resolve(keyFile));
   if (!relative.startsWith('..') && !path.isAbsolute(relative)) throw new Error('La clave de respaldo no puede guardarse dentro del directorio de copias.');
@@ -16,8 +29,7 @@ export async function createEncryptedBackup(source: string, directory: string, k
   const id = `${new Date().toISOString().replaceAll(':','-').replaceAll('.','-')}-${randomUUID().slice(0,8)}`;
   const snapshot = path.join(scratch, 'snapshot.sqlite'), file = path.join(directory, `facturacion-${id}.nxb`);
   try {
-    const db = new DatabaseSync(source, { readOnly: true }); try { db.prepare('VACUUM INTO ?').run(snapshot); } finally { db.close(); }
-    fs.chmodSync(snapshot, 0o600);
+    createSessionlessSnapshot(source, snapshot);
     const iv = randomBytes(12), cipher = createCipheriv('aes-256-gcm', key, iv); cipher.setAAD(MAGIC);
     fs.writeFileSync(file, Buffer.concat([MAGIC, iv, Buffer.alloc(16)]), { flag: 'wx', mode: 0o600 });
     await pipeline(fs.createReadStream(snapshot), cipher, fs.createWriteStream(file, { flags: 'r+', start: HEADER_BYTES }));

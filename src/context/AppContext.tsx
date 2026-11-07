@@ -34,7 +34,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let timer = 0; const schedule = () => { window.clearTimeout(timer); timer = window.setTimeout(() => { void refresh().catch(() => setRealtime('reconnecting')); }, 250); };
     const stream = new EventSource('/api/events');
-    stream.addEventListener('connected', () => { setRealtime('live'); schedule(); }); stream.addEventListener('changed', schedule);
+    stream.addEventListener('connected', () => { setRealtime('live'); schedule(); }); stream.addEventListener('changed', () => { window.dispatchEvent(new Event('session-changed')); schedule(); });
     stream.addEventListener('session-expired', () => { stream.close(); window.dispatchEvent(new Event('session-expired')); });
     stream.onerror = () => setRealtime(navigator.onLine ? 'reconnecting' : 'offline');
     const online = () => { setRealtime('reconnecting'); schedule(); }, offline = () => setRealtime('offline');

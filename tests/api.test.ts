@@ -9,11 +9,14 @@ import { createSampleSignatureDataUrl } from '../server/utils/signaturePng';
 
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nexo-api-')); process.env.DATA_DIR = directory; process.env.SEED_DEMO = 'true';
 const { createApp } = await import('../server/app'); const { db, getInvoiceById } = await import('../server/db');
-let server: http.Server, protectedServer: http.Server, origin: string, protectedOrigin: string;
+let server: http.Server, origin: string, adminCookie = '', adminCsrf = '';
 const password = randomBytes(24).toString('hex');
-before(async () => { server = http.createServer(createApp({ password: '' })); protectedServer = http.createServer(createApp({ password })); await Promise.all([new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)), new Promise<void>(resolve => protectedServer.listen(0, '127.0.0.1', resolve))]); origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`; protectedOrigin = `http://127.0.0.1:${(protectedServer.address() as { port: number }).port}`; });
-after(async () => { await Promise.all([new Promise<void>(resolve => server.close(() => resolve())), new Promise<void>(resolve => protectedServer.close(() => resolve()))]); db.close(); fs.rmSync(directory, { recursive: true, force: true }); });
-const request = (url: string, method = 'GET', body?: unknown, headers: Record<string, string> = {}) => fetch(`${origin}${url}`, { method, headers: { 'Content-Type': 'application/json', ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
+before(async () => {
+  server = http.createServer(createApp({ password, allowSetup: false })); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const login = await fetch(`${origin}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'admin', password }) }); assert.equal(login.status, 200); adminCookie = login.headers.get('set-cookie')!.split(';')[0]; adminCsrf=(await login.json()).csrfToken;
+});
+after(async () => { await new Promise<void>(resolve => server.close(() => resolve())); db.close(); fs.rmSync(directory, { recursive: true, force: true }); });
+const request = (url: string, method = 'GET', body?: unknown, headers: Record<string, string> = {}) => fetch(`${origin}${url}`, { method, headers: { 'Content-Type': 'application/json', Cookie: adminCookie, 'X-CSRF-Token':adminCsrf, ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
 
 test('health, standards, JSON 404 and same-origin write protection', async () => {
   const response = await request('/api/health'); assert.equal(response.status, 200); assert.equal((await response.json()).ok, true); assert.equal((await (await request('/api/paper-standards')).json()).length, 10); assert.equal(response.headers.get('cache-control'), 'no-store');
@@ -47,13 +50,16 @@ test('signing persists consent; raw updates cannot bypass the immutable document
   assert.equal((await (await request('/api/invoices/inv-01/integrity')).json()).matches, false);
   assert.equal((await request('/api/invoices/inv-01/export/pdf')).status, 409);
 });
-test('optional password sessions protect all documents and exports with HttpOnly cookies', async () => {
-  assert.equal((await fetch(`${protectedOrigin}/api/health`)).status, 200);
-  const session = await (await fetch(`${protectedOrigin}/api/session`)).json(); assert.equal(session.protected, true); assert.equal(session.authenticated, false);
-  assert.equal((await fetch(`${protectedOrigin}/api/invoices`)).status, 401); assert.equal((await fetch(`${protectedOrigin}/api/invoices/inv-02/export/pdf`)).status, 401);
-  const bad = await fetch(`${protectedOrigin}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'incorrect' }) }); assert.equal(bad.status, 401);
-  const login = await fetch(`${protectedOrigin}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) }); assert.equal(login.status, 200); const cookie = login.headers.get('set-cookie')!; assert.match(cookie, /HttpOnly/); assert.match(cookie, /SameSite=Strict/);
-  const loggedIn = await (await fetch(`${protectedOrigin}/api/session`, { headers: { Cookie: cookie.split(';')[0] } })).json();
-  const headers = { Cookie: cookie.split(';')[0], 'X-CSRF-Token': loggedIn.csrfToken }; assert.equal((await fetch(`${protectedOrigin}/api/clients`, { headers })).status, 200);
-  assert.equal((await fetch(`${protectedOrigin}/api/logout`, { method: 'POST', headers })).status, 200); assert.equal((await fetch(`${protectedOrigin}/api/clients`, { headers })).status, 401);
+test('APP_PASSWORD bootstraps an admin account; per-user sessions protect documents and exports with HttpOnly cookies', async () => {
+  assert.equal((await fetch(`${origin}/api/health`)).status, 200);
+  const session = await (await fetch(`${origin}/api/session`)).json(); assert.equal(session.protected, true); assert.equal(session.authenticated, false); assert.equal(session.user, null); assert.equal(session.setupAvailable, false);
+  assert.equal((await fetch(`${origin}/api/invoices`)).status, 401); assert.equal((await fetch(`${origin}/api/invoices/inv-02/export/pdf`)).status, 401);
+  const post = (body: unknown) => fetch(`${origin}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal((await post({ username: 'admin', password: 'incorrect' })).status, 401); assert.equal((await post({ username: 'nadie', password })).status, 401); assert.equal((await post({ password })).status, 401);
+  assert.equal((await post({ username: 'admin', password: 'incorrect' })).headers.get('set-cookie'), null);
+  const login = await post({ username: 'ADMIN', password }); assert.equal(login.status, 200); const cookie = login.headers.get('set-cookie')!; assert.match(cookie, /HttpOnly/); assert.match(cookie, /SameSite=Strict/);
+  const info = await login.json(); assert.equal(info.user.username, 'admin'); assert.equal(info.user.role, 'admin'); assert.ok(info.permissions.includes('users.manage'));
+  const headers = { Cookie: cookie.split(';')[0], 'X-CSRF-Token':info.csrfToken }; assert.equal((await fetch(`${origin}/api/clients`, { headers })).status, 200);
+  assert.equal((await fetch(`${origin}/api/logout`, { method: 'POST', headers })).status, 200); assert.equal((await fetch(`${origin}/api/clients`, { headers })).status, 401);
+  assert.equal((await fetch(`${origin}/api/setup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'intruso', displayName: 'X', password: 'una-clave-muy-larga' }) })).status, 409);
 });

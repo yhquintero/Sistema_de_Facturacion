@@ -37,7 +37,30 @@ El modo se conserva tras inicializar. El panel solicita frase sin eco, guarda sc
 - SSE autenticado entre dispositivos, reconexión/resincronización, indicadores visibles. No edición offline ni datos fiscales en caché PWA.
 - Copias consistentes **AES-256-GCM**, restauración autenticada solo a archivo nuevo y paquete de servicio con manifiesto sin directorios de datos/secretos.
 - **Fiscal · Cuba / ONAT**: perfil/vector declarado, cobros/gastos/tributos/seguridad social/retenciones, soporte, cambio documentado→CUP, reversión/idempotencia, resumen mensual y conciliación. XLSX/CSV/ZIP de preparación, no formularios oficiales.
-- Pantalla **Seguridad y operación** y aviso de privacidad inicial. MFA, cuentas/RBAC individuales, sellado externo, certificación, contabilidad NCIF completa y modelos finales ONAT siguen pendientes.
+- **Cuentas personales y cuatro roles** aplicados por el servidor, contraseñas temporales/cambio obligatorio, desactivación, revocación de sesiones y actividad de acceso. Se conservan las cuentas incorporadas por PR #2.
+- Pantalla **Seguridad y operación** (administradores) y aviso de privacidad inicial. MFA, aislamiento entre negocios/clientes, sellado externo, certificación, contabilidad NCIF completa y modelos finales ONAT siguen pendientes.
+
+## Usuarios, roles y acceso
+
+Entra con **usuario y contraseña**, no con una contraseña compartida. En la primera inicialización, el panel crea `admin` con la frase introducida. En Node/Compose, `ADMIN_USERNAME` (por defecto `admin`) identifica la primera cuenta creada con el hash/credencial de arranque. **Una base que ya contiene cuentas conserva sus usuarios, hashes y roles; la credencial de arranque no sustituye sus contraseñas ni permite saltarse el login.** No borres ni recrees la BD para actualizar.
+
+| Acción | Administrador | Gestor | Técnico | Solo lectura |
+|---|:-:|:-:|:-:|:-:|
+| Consultar datos comerciales y descargar facturas | Sí | Sí | Sí | Sí |
+| Preparar borradores / recoger firma asistida | Sí | Sí | Sí | No |
+| Clientes, contratos, catálogo y ciclo de emisión/cobro/anulación | Sí | Sí | No | No |
+| Perfil del Suministrador, usuarios y estado de seguridad | Sí | No | No | No |
+| Consultar / exportar auxiliares fiscales | Sí | Sí | No | Sí |
+| Perfil fiscal, movimientos y reversiones | Sí | Sí | No | No |
+
+- El administrador invita desde **Usuarios y acceso**, asigna rol y entrega la contraseña temporal por un canal seguro. El cambio obligatorio bloquea datos/operaciones hasta elegir contraseña propia. Se protege la existencia de al menos un administrador activo.
+- **Mi cuenta** permite cambiar la contraseña con la actual; revoca las demás sesiones. Desactivar/restablecer una cuenta revoca sus sesiones; el rol vigente se vuelve a leer en cada solicitud. La interfaz no es el control de seguridad.
+- Nuevas contraseñas: 14–1024 caracteres, scrypt con sal aleatoria. Los hashes de PR #2 siguen verificándose (incluida su normalización NFKC); al cambiar contraseña se usa el formato reforzado. No se cambia una contraseña por actualizar el servidor.
+- Cookies HttpOnly/Strict/Secure bajo HTTPS, CSRF por sesión, 30 min de inactividad HTTP y 8 h absolutas; máximo 20 sesiones por cuenta / 256 globales. Reiniciar el proceso cierra las sesiones, **no** elimina las cuentas. Las copias excluyen sesiones sin desconectar usuarios del servidor activo.
+- El registro comercial conserva autor individual y **Actividad de acceso** es solo de administradores; no es un registro inmutable ni identifica criptográficamente al Cliente Final. Todos estos roles pertenecen al **mismo negocio**, no son cuentas aisladas para clientes.
+- Ni siquiera un administrador puede reescribir el contenido de una factura emitida/firmada; se conservan los límites de integridad. MFA y portal multicliente siguen pendientes.
+
+**Recuperación local:** en el servidor y con `DATA_DIR` apuntando a la base correcta, `npm run user:reset-password -- <usuario> [--admin]` genera una contraseña temporal, la muestra una vez y revoca sesiones. `--admin` recupera/crea un administrador activo; requiere acceso al SO, no es un endpoint público. Cambiar `APP_PASSWORD` o regenerar el hash inicial **no** restablece cuentas existentes. Ver el procedimiento y las rutas del panel en [operación segura](docs/OPERACION-SEGURA.md#cuentas-personales-y-recuperación).
 
 ## Documentación y auditoría, en el orden solicitado
 
