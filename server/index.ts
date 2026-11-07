@@ -41,7 +41,7 @@ async function bootstrap() {
     if (!fs.existsSync(path.join(distPath, 'index.html'))) throw new Error('No existe el frontend compilado. Ejecuta npm run build.');
     app.use('/assets', express.static(path.join(distPath, 'assets'), { immutable: true, maxAge: '1y', dotfiles: 'deny' }));
     app.use(express.static(distPath, { maxAge: 0, dotfiles: 'deny' }));
-    app.get('*', (_req, res) => { res.setHeader('Cache-Control', 'no-store'); res.sendFile(path.join(distPath, 'index.html')); });
+    app.get('/{*path}', (_req, res) => { res.setHeader('Cache-Control', 'no-store'); res.sendFile(path.join(distPath, 'index.html')); });
   }
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(config.port, config.host, () => { server.removeListener('error', reject); resolve(); }); });
   console.log(`[Nexo] Web + API + tiempo real: ${config.publicOrigin || `http://${config.host}:${config.port}`} · ${hasUsers() ? 'Espacio protegido' : 'Solo demostración'} · TLS ${config.tlsMode}`);
