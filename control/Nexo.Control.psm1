@@ -102,6 +102,39 @@ function Read-PasswordHash {
         $secret.Dispose(); $confirmation.Dispose()
     }
 }
+function Get-NexoSites([string] $Mode, [string] $LanAddress, [int] $HttpsPort) {
+    if ($Mode -eq 'LAN') { return "https://${LanAddress}:$HttpsPort, https://localhost:$HttpsPort, https://127.0.0.1:$HttpsPort" }
+    return "https://localhost:$HttpsPort, https://127.0.0.1:$HttpsPort"
+}
+function Write-NexoCaddyfile([string] $Path, [string] $Mode, [string] $Sites, [string] $LanAddress, [int] $InternalPort) {
+    $storage = (Join-Path $script:State 'caddy-storage').Replace('\','/')
+    $lanOptions = if ($Mode -ne 'Public') { "    skip_install_trust`n    auto_https disable_redirects" } else { '' }
+    $tls = if ($Mode -ne 'Public') { "tls internal {`n        protocols tls1.2 tls1.3`n    }" } else { "tls {`n        protocols tls1.2 tls1.3`n    }" }
+    $bind = if ($Mode -eq 'Local') { 'bind 127.0.0.1 ::1' } elseif ($Mode -eq 'LAN') { "bind $LanAddress 127.0.0.1 ::1" } else { '' }
+    $sitesLine = $Sites
+    @"
+{
+    admin off
+$lanOptions
+    storage file_system {
+        root "$storage"
+    }
+}
+$sitesLine {
+    $bind
+    $tls
+    request_body {
+        max_size 4MB
+    }
+    reverse_proxy 127.0.0.1:$InternalPort {
+        header_up -Forwarded
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-For {remote_host}
+        flush_interval -1
+    }
+}
+"@ | Set-Content -LiteralPath $Path -Encoding utf8NoBOM
+}
 function Initialize-Control($Mode, $Domain, $LanAddress, $HttpsPort, $InternalPort) {
     if (Get-Config) { throw 'Ya existe configuración. No se sobrescriben datos ni claves. Usa Start o edita una copia revisada de control.json.' }
     if ($Mode -eq 'Public') { $HttpsPort = 443 }
@@ -117,8 +150,10 @@ function Initialize-Control($Mode, $Domain, $LanAddress, $HttpsPort, $InternalPo
         if (!$LanAddress) { $LanAddress = Read-Host 'IP privada fija del equipo en la red Wi-Fi (ejemplo 192.168.1.20)' }
         $address = [Net.IPAddress]::Parse($LanAddress); $bytes = $address.GetAddressBytes()
         if ($bytes.Length -ne 4 -or !(($bytes[0] -eq 10) -or ($bytes[0] -eq 192 -and $bytes[1] -eq 168) -or ($bytes[0] -eq 172 -and $bytes[1] -ge 16 -and $bytes[1] -le 31))) { throw 'LAN requiere una dirección IPv4 privada 10/8, 172.16/12 o 192.168/16.' }
-        $origin = "https://${LanAddress}:$HttpsPort"; $sites = "https://${LanAddress}:$HttpsPort, https://localhost:$HttpsPort, https://127.0.0.1:$HttpsPort"
-    } else { $origin = "https://localhost:$HttpsPort"; $sites = "https://localhost:$HttpsPort, https://127.0.0.1:$HttpsPort" }
+        $origin = "https://${LanAddress}:$HttpsPort"; $sites = Get-NexoSites $Mode $LanAddress $HttpsPort
+    } else { $origin = "https://localhost:$HttpsPort"; $sites = Get-NexoSites $Mode '' $HttpsPort }
+    # Antes de pedir secretos: el puerto debe estar libre (NovaGest usa 8443 y 8444 en el mismo PC).
+    if ($Mode -ne 'Public') { Assert-PortAvailable $HttpsPort 'HTTPS' -Remedy "Elige otro puerto al inicializar, por ejemplo: -HttpsPort $(Get-FreePortSuggestion 8450 8499 @($HttpsPort))" }
     $dataCountry = Read-Host 'País físico del servidor y respaldos (CU solo si verificado; otro código o UNCONFIRMED)'
     if (!$dataCountry) { $dataCountry = 'UNCONFIRMED' }; $dataCountry = $dataCountry.ToUpperInvariant()
     $exceptionReference = ''
@@ -133,32 +168,8 @@ function Initialize-Control($Mode, $Domain, $LanAddress, $HttpsPort, $InternalPo
     $random = [Security.Cryptography.RandomNumberGenerator]::GetBytes(32)
     [IO.File]::WriteAllBytes($backupKey, $random); [Array]::Clear($random); Set-PrivatePermissions $backupKey
     $data = Join-Path $script:State 'data'; New-Item -ItemType Directory -Path $data -Force | Out-Null; Set-PrivatePermissions $data
-    $storage = (Join-Path $script:State 'caddy-storage').Replace('\','/'); $caddyfile = Join-Path $script:State 'Caddyfile'
-    $lanOptions = if ($Mode -ne 'Public') { "    skip_install_trust`n    auto_https disable_redirects" } else { '' }
-    $tls = if ($Mode -ne 'Public') { "tls internal {`n        protocols tls1.2 tls1.3`n    }" } else { "tls {`n        protocols tls1.2 tls1.3`n    }" }
-    $bind = if ($Mode -eq 'Local') { 'bind 127.0.0.1 ::1' } elseif ($Mode -eq 'LAN') { "bind $LanAddress 127.0.0.1 ::1" } else { '' }
-    @"
-{
-    admin off
-$lanOptions
-    storage file_system {
-        root "$storage"
-    }
-}
-$sites {
-    $bind
-    $tls
-    request_body {
-        max_size 4MB
-    }
-    reverse_proxy 127.0.0.1:$InternalPort {
-        header_up -Forwarded
-        header_up X-Forwarded-Proto {scheme}
-        header_up X-Forwarded-For {remote_host}
-        flush_interval -1
-    }
-}
-"@ | Set-Content -LiteralPath $caddyfile -Encoding utf8NoBOM
+    $caddyfile = Join-Path $script:State 'Caddyfile'
+    Write-NexoCaddyfile $caddyfile $Mode $sites $LanAddress $InternalPort
     $config = @{ schemaVersion = 1; mode = $Mode; origin = $origin; internalPort = $InternalPort; httpsPort = $HttpsPort; allowedOrigins = if ($Mode -ne 'Public') { "https://localhost:$HttpsPort,https://127.0.0.1:$HttpsPort,$origin" } else { $origin }; dataDir = $data; passwordHashFile = $passwordFile; backupKeyFile = $backupKey; caddyPath = $caddy; caddySha256 = (Get-FileHash -LiteralPath $caddy -Algorithm SHA256).Hash; caddyfile = $caddyfile; caFile = Join-Path $script:State 'caddy-storage/pki/authorities/local/root.crt'; controllerName = $controller; privacyContact = $privacyContact; dataCountry = $dataCountry; exceptionReference = $exceptionReference }
     Write-PrivateJson $script:ConfigFile $config
     Write-Warning 'Guarda una copia de backup.key en otro medio protegido. La contraseña no recupera los respaldos. Verifica también BitLocker y la política de conservación.'
@@ -207,6 +218,8 @@ function Start-Control($Config, [switch] $NoBrowser, [switch] $NoBuild) {
     if ($records.Count -eq 2 -and @($records | Where-Object { Get-OwnedProcess $_ }).Count -eq 2) { Write-Host "Ya está activo: $($Config.origin)"; return }
     if ($records.Count) { Stop-Control }
     if ((Get-FileHash -LiteralPath $Config.caddyPath -Algorithm SHA256).Hash -cne $Config.caddySha256) { throw 'Caddy ha cambiado. Verifica su origen y utiliza ApproveCaddy antes de iniciar.' }
+    Assert-PortAvailable ([int]$Config.internalPort) 'interno'
+    if ($Config.mode -ne 'Public') { Assert-PortAvailable ([int]$Config.httpsPort) 'HTTPS' }
     if (!$NoBuild) {
         Push-Location $script:Repository
         try { $npm = if ($IsWindows) { 'npm.cmd' } else { 'npm' }; & $npm run build; if ($LASTEXITCODE -ne 0) { throw 'Compilación fallida. No se inicia una versión incompleta.' } } finally { Pop-Location }
@@ -228,17 +241,21 @@ function Start-Control($Config, [switch] $NoBrowser, [switch] $NoBuild) {
         for ($attempt = 0; $attempt -lt 45; $attempt++) {
             if (!(Get-OwnedProcess $caddyRecord)) { throw 'El proxy HTTPS terminó. Consulta logs/https.stderr.log.' }
             if ($Config.mode -ne 'Public' -and !(Test-Path -LiteralPath $Config.caFile)) { Start-Sleep -Seconds 1; continue }
-            $probe = @('--import','tsx','scripts/probe-https.ts','--url',$Config.origin)
+            # Exige el identificador de esta instancia a través del proxy: otro servicio en el mismo puerto no basta.
+            $probe = @('--import','tsx','scripts/probe-https.ts','--url',$Config.origin,'--instance',$environment.CONTROL_INSTANCE_ID)
             if ($Config.mode -ne 'Public') { $probe += @('--ca',$Config.caFile) }
             try { Invoke-Node $probe; $verified = $true; break } catch { Start-Sleep -Seconds 2 }
         }
-        if (!$verified) { throw 'No se pudo verificar HTTPS. Revisa certificado, DNS, puertos y cadena. No se desactiva su validación.' }
+        if (!$verified) { throw "No se pudo verificar que $($Config.origin) responda con ESTA instancia de Nexo. Revisa que ningún otro programa use el puerto $($Config.httpsPort), el certificado y la cadena. No se desactiva su validación." }
         if ($Config.mode -ne 'Public') {
             $share = Join-Path $script:State 'share'; New-Item -ItemType Directory -Path $share -Force | Out-Null; Set-PrivatePermissions $share
             Copy-Item -LiteralPath $Config.caFile -Destination (Join-Path $share 'Nexo-CA-PUBLICA.crt') -Force
             Write-Host "CA pública para confiar explícitamente en PC/móvil: $(Join-Path $share 'Nexo-CA-PUBLICA.crt')"
             Write-Host "SHA-256: $((Get-FileHash -LiteralPath $Config.caFile -Algorithm SHA256).Hash)"
             Write-Warning 'El navegador y cada móvil deben confiar por separado en esta CA, tras comprobar la huella. No ignores advertencias TLS. No compartas caddy-storage ni claves privadas.'
+            if (!(Test-LocalCATrusted $Config)) {
+                Write-Warning "Este Windows todavía NO confía en la CA de Nexo. Hasta hacerlo, el navegador mostrará un aviso de seguridad en $($Config.origin) y, si en esa dirección se usó antes otra aplicación instalable (PWA), puede mostrar su pantalla guardada en lugar de Nexo. Confía en ella tras comparar la huella: pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action TrustLocalCA (Firefox usa su propio almacén de certificados)."
+            }
         }
         Write-Host "WEB + SERVIDOR + TIEMPO REAL: $($Config.origin)"
         if (!$NoBrowser) { Start-Process $Config.origin | Out-Null }
@@ -254,6 +271,76 @@ function Set-LanFirewall($Config, [switch] $Remove) {
     if (!(Get-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue)) { New-NetFirewallRule -Name $rule -DisplayName $rule -Direction Inbound -Action Allow -Profile Private -RemoteAddress LocalSubnet -Protocol TCP -LocalPort $Config.httpsPort -Program $Config.caddyPath | Out-Null }
     Write-Host 'Regla creada solo en perfil privado/subred local. El puerto del backend no se abre.'
 }
+# --- Puertos ------------------------------------------------------------------
+# NovaGest (yhquintero/inventario) usa 8443 (Web + API) y 8444 (generador de licencias) en el mismo PC.
+# En Windows, otro programa puede escuchar en 0.0.0.0 mientras Caddy escucha en 127.0.0.1 en el mismo puerto
+# sin ningún error, y el navegador termina en la otra aplicación (o en la pantalla que su PWA guardó).
+# Por eso Nexo usa 8450 por defecto, comprueba que su puerto esté libre y verifica su identidad por HTTPS.
+$script:KnownPorts = @{ 8443 = 'NovaGest (Web + API)'; 8444 = 'NovaGest (generador de licencias)'; 8080 = 'NovaGest (HTTP)' }
+function Get-PortListeners([int] $Port) {
+    if ($IsWindows) {
+        return @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue | ForEach-Object {
+            $owner = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue
+            [PSCustomObject]@{ Address = [string]$_.LocalAddress; ProcessId = [int]$_.OwningProcess; Name = if ($owner) { $owner.ProcessName } else { 'desconocido' } }
+        })
+    }
+    $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $Port)
+    try { $listener.Start(); return @() } catch { return @([PSCustomObject]@{ Address = '127.0.0.1'; ProcessId = 0; Name = 'desconocido' }) } finally { try { $listener.Stop() } catch { } }
+}
+function Get-FreePortSuggestion([int] $From, [int] $To, [int[]] $Exclude = @()) {
+    foreach ($candidate in $From..$To) { if ($candidate -notin $Exclude -and !$script:KnownPorts.ContainsKey($candidate) -and @(Get-PortListeners $candidate).Count -eq 0) { return $candidate } }
+    return $From
+}
+function Assert-PortAvailable([int] $Port, [string] $Purpose, [int] $WaitSeconds = 10, [string] $Remedy) {
+    $deadline = [DateTime]::UtcNow.AddSeconds($WaitSeconds)
+    while ($true) {
+        # Se ignoran procesos que ya terminaron (por ejemplo, el Caddy propio recién detenido por Restart).
+        $listeners = @(Get-PortListeners $Port | Where-Object { $_.ProcessId -eq 0 -or (Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue) })
+        if (!$listeners.Count) { return }
+        if ([DateTime]::UtcNow -ge $deadline) { break }
+        Start-Sleep -Milliseconds 500
+    }
+    $who = (@($listeners | Sort-Object ProcessId, Address -Unique | ForEach-Object { if ($_.ProcessId) { "$($_.Name) (PID $($_.ProcessId)) en $($_.Address)" } else { "otro programa en $($_.Address)" } }) -join '; ')
+    $known = if ($script:KnownPorts.ContainsKey($Port)) { " Es el puerto de $($script:KnownPorts[$Port])." } else { '' }
+    if (!$Remedy) {
+        $flag = if ($Purpose -eq 'interno') { "-InternalPort $(Get-FreePortSuggestion 3010 3099 @($Port))" } else { "-HttpsPort $(Get-FreePortSuggestion 8450 8499 @($Port))" }
+        $Remedy = "Mueve Nexo a un puerto libre (conserva datos, cuentas, copias y la confianza en su CA):`n  pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action SetPort $flag`nO detén ese programa y vuelve a iniciar Nexo."
+    }
+    throw "El puerto $Purpose $Port ya lo usa otro programa: $who.$known`nNexo no se inicia ahí: el navegador mostraría esa otra aplicación (o la pantalla que guardó sin conexión) en lugar de Nexo.`n$Remedy"
+}
+function Set-ControlPort($Config, [int] $HttpsPort, [int] $InternalPort) {
+    if ($Config.mode -eq 'Public') { throw 'En modo Public el puerto HTTPS es 443 por diseño (dominio propio); no se cambia con SetPort.' }
+    if (!$HttpsPort) { $HttpsPort = [int]$Config.httpsPort }
+    if (!$InternalPort) { $InternalPort = [int]$Config.internalPort }
+    if ($HttpsPort -lt 1024 -or $HttpsPort -gt 65535 -or $InternalPort -lt 1024 -or $InternalPort -gt 65535) { throw 'Los puertos deben estar entre 1024 y 65535.' }
+    if ($HttpsPort -eq $InternalPort) { throw 'Los puertos HTTPS e interno deben ser distintos.' }
+    $oldPort = [int]$Config.httpsPort; $oldOrigin = [string]$Config.origin
+    if ($HttpsPort -eq $oldPort -and $InternalPort -eq [int]$Config.internalPort) { Write-Host "Nexo ya usa el puerto HTTPS $HttpsPort y el interno $InternalPort. No hay cambios."; return $Config }
+    if (@(Read-ProcessState).Count) { Stop-Control }
+    if ($HttpsPort -ne $oldPort) { Assert-PortAvailable $HttpsPort 'HTTPS' }
+    if ($InternalPort -ne [int]$Config.internalPort) { Assert-PortAvailable $InternalPort 'interno' }
+    $lan = if ($Config.mode -eq 'LAN') { ([Uri]$oldOrigin).Host } else { '' }
+    $origin = if ($lan) { "https://${lan}:$HttpsPort" } else { "https://localhost:$HttpsPort" }
+    Write-NexoCaddyfile ([string]$Config.caddyfile) ([string]$Config.mode) (Get-NexoSites ([string]$Config.mode) $lan $HttpsPort) $lan $InternalPort
+    $Config.httpsPort = $HttpsPort; $Config.internalPort = $InternalPort; $Config.origin = $origin
+    $Config.allowedOrigins = "https://localhost:$HttpsPort,https://127.0.0.1:$HttpsPort,$origin"
+    Write-PrivateJson $script:ConfigFile $Config
+    Write-Host "Nexo usará $origin (antes $oldOrigin). Datos, cuentas, copias, contraseñas y la CA local no cambian."
+    if ($lan) {
+        Write-Warning "En cada móvil abre la nueva dirección $origin y vuelve a añadirla a la pantalla de inicio."
+        if ($IsWindows -and $HttpsPort -ne $oldPort -and (Get-NetFirewallRule -Name "Nexo-LAN-HTTPS-$oldPort" -ErrorAction SilentlyContinue)) {
+            Write-Warning "La regla de firewall del puerto anterior sigue abierta. En PowerShell como administrador: Remove-NetFirewallRule -Name Nexo-LAN-HTTPS-$oldPort; luego -Action OpenLanFirewall para el puerto nuevo."
+        }
+    }
+    Write-Host 'Inicia Nexo con: pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action Menu'
+    return $Config
+}
+function Test-LocalCATrusted($Config) {
+    if (!$IsWindows -or $Config.mode -eq 'Public' -or !(Test-Path -LiteralPath $Config.caFile)) { return $true }
+    try { $thumbprint = (Get-PfxCertificate -FilePath $Config.caFile).Thumbprint } catch { return $true }
+    return @(Get-ChildItem Cert:\CurrentUser\Root, Cert:\LocalMachine\Root -ErrorAction SilentlyContinue | Where-Object Thumbprint -eq $thumbprint).Count -gt 0
+}
+
 # --- Dependencias npm -------------------------------------------------------
 # npm ci se ejecuta con reintentos porque una conexión inestable (ECONNRESET, tiempo agotado)
 # no debe obligar a empezar de cero: cada paquete descargado queda en la caché de npm, verificado
@@ -373,7 +460,7 @@ function Install-Dependencies([string] $Registry, [int] $MaxAttempts = 4, [int[]
 
 function Invoke-NexoControl {
     [CmdletBinding()]
-    param([string]$Action = 'Start',[string]$Mode = 'Local',[string]$Domain,[string]$LanAddress,[int]$HttpsPort = 8443,[int]$InternalPort = 3000,[string]$StateDirectory,[string]$ExportPath,[switch]$InstallDependencies,[string]$NpmRegistry,[switch]$NoBrowser,[switch]$NoBuild)
+    param([string]$Action = 'Start',[string]$Mode = 'Local',[string]$Domain,[string]$LanAddress,[int]$HttpsPort = 8450,[int]$InternalPort = 3000,[string]$StateDirectory,[string]$ExportPath,[switch]$InstallDependencies,[string]$NpmRegistry,[switch]$NoBrowser,[switch]$NoBuild)
     if ($NpmRegistry -and !$InstallDependencies) { throw 'NpmRegistry solo se usa junto con -InstallDependencies.' }
     $script:State = if ($StateDirectory) { [IO.Path]::GetFullPath($StateDirectory) } else { Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'NexoFacturacion' }
     if ($script:State.Contains('"') -or $script:State -match '[\r\n]') { throw 'Directorio de estado no admitido.' }
@@ -415,6 +502,12 @@ Si la descarga falla por la red, el mensaje de ese comando explica cómo reinten
             if ((Read-Host 'Escribe CONFIAR tras verificar esta CA propia') -cne 'CONFIAR') { throw 'Confianza cancelada.' }
             Import-Certificate -FilePath $config.caFile -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
         }
+        'SetPort' {
+            $newHttps = if ($PSBoundParameters.ContainsKey('HttpsPort')) { $HttpsPort } else { 0 }
+            $newInternal = if ($PSBoundParameters.ContainsKey('InternalPort')) { $InternalPort } else { 0 }
+            if (!$newHttps -and !$newInternal) { throw 'Indica el puerto nuevo, por ejemplo: -Action SetPort -HttpsPort 8450 (y, si hace falta, -InternalPort 3010).' }
+            Set-ControlPort $config $newHttps $newInternal | Out-Null
+        }
         'OpenLanFirewall' { Set-LanFirewall $config }
         'RemoveLanFirewall' { Set-LanFirewall $config -Remove }
         'ApproveCaddy' { $hash = (Get-FileHash -LiteralPath $config.caddyPath -Algorithm SHA256).Hash; Write-Host "Nuevo SHA-256 Caddy: $hash"; if ((Read-Host 'Escribe VERIFICADO tras contrastar origen y checksum oficial') -cne 'VERIFICADO') { throw 'Cambio no aprobado.' }; $config.caddySha256 = $hash; Write-PrivateJson $script:ConfigFile $config }
@@ -424,7 +517,7 @@ Si la descarga falla por la red, el mensaje de ese comando explica cómo reinten
                 Write-Host "`n[1] Estado  [2] Copia cifrada  [3] Exportar servicio  [4] Detener  [5] Salir (mantener servicios)"
                 $choice = Read-Host 'Acción'
                 switch ($choice) {
-                    '1' { foreach ($record in (Read-ProcessState)) { Write-Host "$($record.role): $([bool](Get-OwnedProcess $record))" } }
+                    '1' { Write-Host "Dirección de Nexo: $($config.origin)"; foreach ($record in (Read-ProcessState)) { Write-Host "$($record.role): $([bool](Get-OwnedProcess $record))" } }
                     '2' { Invoke-Node @('--import','tsx','scripts/backup.ts') (Get-NodeEnvironment $config) }
                     '3' { Invoke-Node @('--import','tsx','scripts/package-service.ts') }
                     '4' { Stop-Control }

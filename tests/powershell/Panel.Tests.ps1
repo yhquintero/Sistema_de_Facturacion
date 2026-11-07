@@ -87,9 +87,45 @@ try {
         $current = Get-Process -Id $PID
         $record = [PSCustomObject]@{ processId = $PID; startTicks = ($current.StartTime.ToUniversalTime().Ticks + 1); executable = $current.Path }
         if (Get-OwnedProcess $record) { throw 'La identidad de un PID reutilizado no fue rechazada.' }
+        # Puertos: un puerto ocupado (NovaGest usa 8443 en el mismo PC) se rechaza nombrando el programa y el remedio.
+        $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Any, 0); $listener.Start()
+        $busy = ([Net.IPEndPoint]$listener.LocalEndpoint).Port
+        try {
+            $message = ''; try { Assert-PortAvailable $busy 'HTTPS' -WaitSeconds 1 } catch { $message = $_.Exception.Message }
+            if ($message -notmatch "puerto HTTPS $busy" -or $message -notmatch '-Action SetPort -HttpsPort \d+' -or $message -notmatch 'otra aplicación') { throw "Puerto ocupado sin diagnóstico accionable: $message" }
+            if ($IsWindows -and $message -notmatch "PID $PID") { throw "Debe identificar el proceso que ocupa el puerto: $message" }
+        } finally { $listener.Stop() }
+        Assert-PortAvailable $busy 'HTTPS' -WaitSeconds 1
+        if ((Get-FreePortSuggestion 8443 8444) -in @(8443, 8444)) { throw 'No se deben sugerir los puertos de NovaGest.' }
+        # SetPort mueve una instalación existente (Local y LAN) sin tocar modo, TLS ni puerto interno.
+        $originalState = $script:State; $originalConfigFile = $script:ConfigFile; $originalProcessFile = $script:ProcessFile
+        try {
+            foreach ($case in @(@{ Mode = 'Local'; Lan = '' }, @{ Mode = 'LAN'; Lan = '192.168.1.20' })) {
+                $script:State = Join-Path $State ('port-' + $case.Mode); New-Item -ItemType Directory -Path $script:State | Out-Null
+                $script:ConfigFile = Join-Path $script:State 'control.json'; $script:ProcessFile = Join-Path $script:State 'processes.json'
+                $caddyfile = Join-Path $script:State 'Caddyfile'
+                $origin = if ($case.Lan) { "https://$($case.Lan):8443" } else { 'https://localhost:8443' }
+                Write-NexoCaddyfile $caddyfile $case.Mode (Get-NexoSites $case.Mode $case.Lan 8443) $case.Lan 3000
+                Write-PrivateJson $script:ConfigFile @{ schemaVersion = 1; mode = $case.Mode; origin = $origin; internalPort = 3000; httpsPort = 8443; allowedOrigins = "https://localhost:8443,https://127.0.0.1:8443,$origin"; caddyfile = $caddyfile }
+                $port = Get-FreePortSuggestion 18450 18499
+                Set-ControlPort (Get-Config) $port 0 | Out-Null
+                $saved = Get-Config
+                $expected = if ($case.Lan) { "https://$($case.Lan):$port" } else { "https://localhost:$port" }
+                if ($saved.origin -ne $expected -or $saved.httpsPort -ne $port -or $saved.internalPort -ne 3000 -or $saved.mode -ne $case.Mode) { throw "SetPort no actualizó control.json ($($case.Mode)): $($saved | ConvertTo-Json -Compress)" }
+                if ($saved.allowedOrigins -ne "https://localhost:$port,https://127.0.0.1:$port,$expected") { throw "Orígenes permitidos incorrectos: $($saved.allowedOrigins)" }
+                $text = Get-Content -LiteralPath $caddyfile -Raw
+                $bind = if ($case.Lan) { "bind $($case.Lan) 127.0.0.1 ::1" } else { 'bind 127.0.0.1 ::1' }
+                if ($text.Contains(':8443') -or !$text.Contains((Get-NexoSites $case.Mode $case.Lan $port) + ' {') -or !$text.Contains('reverse_proxy 127.0.0.1:3000 {') -or !$text.Contains($bind) -or !$text.Contains('tls internal')) { throw "Caddyfile no actualizado correctamente ($($case.Mode)): $text" }
+            }
+            $message = ''; try { Invoke-NexoControl -Action SetPort -StateDirectory $script:State } catch { $message = $_.Exception.Message }
+            if ($message -notmatch 'Indica el puerto nuevo') { throw "SetPort sin puertos debe explicar el uso: $message" }
+            $public = [PSCustomObject]@{ mode = 'Public'; httpsPort = 443; internalPort = 3000; origin = 'https://facturas.example.cu' }
+            $message = ''; try { Set-ControlPort $public 8450 0 | Out-Null } catch { $message = $_.Exception.Message }
+            if ($message -notmatch '443') { throw 'SetPort debe rechazar el modo Public.' }
+        } finally { $script:State = $originalState; $script:ConfigFile = $originalConfigFile; $script:ProcessFile = $originalProcessFile }
         # Nunca llamar Stop-Control con el PID de este runner.
     } $state
-    Write-Host 'PASS: AST PowerShell, módulo, npm ci con reintentos y diagnóstico, DACL privada, JSON atómico e identidad de proceso.'
+    Write-Host 'PASS: AST PowerShell, módulo, npm ci con reintentos y diagnóstico, puertos ocupados y SetPort, DACL privada, JSON atómico e identidad de proceso.'
     if ($Integration) {
         # Hosted Windows has both setup-node and a preinstalled Node on PATH.
         $expectedNode = (Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
@@ -111,27 +147,9 @@ try {
             if ($LASTEXITCODE -ne 0) { throw 'No se generó el hash sintético.' }
             [IO.File]::WriteAllText($access, $hash.Trim(), [Text.UTF8Encoding]::new($false)); Set-PrivatePermissions $access
             $key = Join-Path $secretDir 'backup.key'; [IO.File]::WriteAllBytes($key,[Security.Cryptography.RandomNumberGenerator]::GetBytes(32)); Set-PrivatePermissions $key
-            $storage = (Join-Path $State 'caddy-storage').Replace('\','/'); $caddyfile = Join-Path $State 'Caddyfile'
-            @"
-{
-    admin off
-    skip_install_trust
-    auto_https disable_redirects
-    storage file_system {
-        root "$storage"
-    }
-}
-https://localhost:$HttpsPort {
-    bind 127.0.0.1 ::1
-    tls internal
-    reverse_proxy 127.0.0.1:$Port {
-        header_up -Forwarded
-        header_up X-Forwarded-Proto {scheme}
-        header_up X-Forwarded-For {remote_host}
-        flush_interval -1
-    }
-}
-"@ | Set-Content -LiteralPath $caddyfile -Encoding utf8NoBOM
+            # El mismo generador que usan Initialize y SetPort: CI arranca Caddy con la configuración real.
+            $script:State = $State; $caddyfile = Join-Path $State 'Caddyfile'
+            Write-NexoCaddyfile $caddyfile 'Local' (Get-NexoSites 'Local' '' $HttpsPort) '' $Port
             return @{ schemaVersion = 1; mode = 'Local'; origin = "https://localhost:$HttpsPort"; internalPort = $Port; httpsPort = $HttpsPort; allowedOrigins = "https://localhost:$HttpsPort"; dataDir = Join-Path $State 'data'; passwordHashFile = $access; backupKeyFile = $key; caddyPath = $Caddy; caddySha256 = (Get-FileHash $Caddy -Algorithm SHA256).Hash; caddyfile = $caddyfile; caFile = Join-Path $State 'caddy-storage/pki/authorities/local/root.crt'; controllerName = 'FIXTURE CI SINTETICA'; privacyContact = 'ci@example.invalid'; dataCountry = 'CU'; exceptionReference = '' }
         } $state $caddy $port $httpsPort
         & $module { param($File,$Config) Write-PrivateJson $File $Config } $configFile $config

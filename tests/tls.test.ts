@@ -13,6 +13,16 @@ test('HTTPS probe verifies trust chain and hostname rather than bypassing TLS; T
     await assert.rejects(new Promise<void>((resolve,reject)=>{const request=https.get(url,{ca:fs.readFileSync(cert),minVersion:'TLSv1',maxVersion:'TLSv1.1'},res=>{res.resume();resolve();});request.on('error',reject);}));
   }finally{await new Promise<void>(r=>server.close(()=>r()));}
 });
+test('HTTPS probe with --instance rejects another service answering on the same address (e.g. NovaGest on its port)',{skip:!available},async()=>{
+  const id='0123456789abcdef0123456789abcdef';const server=https.createServer(loadTlsOptions(readConfig(env)),(req,res)=>{if(req.headers['x-nexo-control-instance']===id&&req.url==='/api/health')res.setHeader('X-Nexo-Instance',id);res.setHeader('Content-Type','application/json');res.end('{"ok":true}');});
+  const impostor=https.createServer(loadTlsOptions(readConfig(env)),(_req,res)=>{res.setHeader('Content-Type','application/json');res.end('{"ok":true}');});
+  await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));await new Promise<void>(r=>impostor.listen(0,'127.0.0.1',r));
+  const url=`https://127.0.0.1:${(server.address() as {port:number}).port}`,other=`https://127.0.0.1:${(impostor.address() as {port:number}).port}`;
+  try{const ok=await run(['--import','tsx','scripts/probe-https.ts','--url',url,'--ca',cert,'--instance',id]);assert.equal(ok.code,0,ok.out);assert.match(ok.out,/instancia de Nexo confirmada/);
+    const wrong=await run(['--import','tsx','scripts/probe-https.ts','--url',other,'--ca',cert,'--instance',id]);assert.notEqual(wrong.code,0);assert.match(wrong.out,/otro servicio/);
+    const bad=await run(['--import','tsx','scripts/probe-https.ts','--url',url,'--ca',cert,'--instance','x;y']);assert.notEqual(bad.code,0);assert.match(bad.out,/no válido/);
+  }finally{await new Promise<void>(r=>server.close(()=>r()));await new Promise<void>(r=>impostor.close(()=>r()));}
+});
 test('bad production TLS configuration stops bootstrap before creating any database',{skip:!available},()=>{
   const data=path.join(root,'should-not-exist');const result=spawnSync(process.execPath,['--import','tsx','server/index.ts','--production'],{encoding:'utf8',timeout:15_000,env:{...process.env,...env,APP_PASSWORD:'synthetic-only-long-test-secret',APP_PASSWORD_HASH_FILE:'',APP_PASSWORD_FILE:'',PUBLIC_ORIGIN:'https://wrong.example.invalid',DATA_DIR:data,ALLOW_PUBLIC_DEMO:'false'}});assert.notEqual(result.status,0);assert.match(result.stderr,/no cubre/);assert.equal(fs.existsSync(data),false);
 });

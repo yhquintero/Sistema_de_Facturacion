@@ -6,6 +6,12 @@ Todos los cambios relevantes de Nexo se documentan aquí. El formato sigue [Keep
 
 ### Corregido
 
+- **Nexo abría la pantalla de inicio de sesión de NovaGest:** las dos aplicaciones usaban `https://localhost:8443` en el mismo PC. Nexo usa ahora **8450** por defecto (también en `TLS_MODE=direct`).
+- El panel comprueba antes de iniciar que el puerto HTTPS y el interno estén libres. Si están ocupados, dice qué programa los usa (nombre, PID, dirección) y cómo resolverlo.
+- La verificación HTTPS exige el identificador de esta instancia de Nexo a través de Caddy. Otro servicio que conteste en ese puerto ya no se da por bueno.
+- Aviso si Windows todavía no confía en la CA local de Nexo.
+- El Caddyfile se genera con una sola función, compartida por la inicialización, `SetPort` y las pruebas de CI.
+
 - **Instalación con conexión inestable:** `-InstallDependencies` ya no se detiene al primer `ECONNRESET`. Reintenta `npm ci` hasta 4 veces con esperas crecientes, reintenta cada descarga dentro de npm y reutiliza la caché verificada (`--prefer-offline`), de modo que cada intento continúa desde lo ya descargado.
 - Si las dependencias ya corresponden al `package-lock.json`, no se vuelve a descargar nada.
 - Mensajes de error con pasos concretos según la causa: red, proxy, certificado, archivos bloqueados o lockfile desincronizado. Los avisos `deprecated` de dependencias indirectas se resumen en una línea.
@@ -13,6 +19,8 @@ Todos los cambios relevantes de Nexo se documentan aquí. El formato sigue [Keep
 
 ### Añadido
 
+- `-Action SetPort -HttpsPort N [-InternalPort N]` mueve una instalación existente a otro puerto sin tocar datos, cuentas, copias ni la confianza en la CA.
+- La opción «Estado» del menú muestra la dirección de Nexo.
 - `-NpmRegistry https://…` para usar un registro espejo solo durante la instalación. Cada paquete se sigue verificando con la huella del `package-lock.json`.
 
 ## [1.1.0] — 2026-11-06

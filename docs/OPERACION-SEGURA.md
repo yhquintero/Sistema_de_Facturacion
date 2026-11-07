@@ -92,7 +92,7 @@ pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action Menu
 
 La primera ejecución pregunta país físico, responsable/contacto y una frase de **14–1024 caracteres**, introducida sin eco dos veces. Prefiere varias palabras aleatorias, exclusivas. La frase entra a Node por **stdin**, no por argumentos/URL. Se guarda un hash scrypt con sal; no la contraseña. Se crea aparte una clave aleatoria de 32 bytes para respaldos.
 
-Se comprueba Node, se ejecuta `npm ci` solo al pedir `-InstallDependencies`, se compila salvo `-NoBuild`, se valida Caddy, se inicia el backend, se verifica una **identidad de instancia** sobre salud de loopback y después HTTPS con cadena y nombre. Un servicio ajeno que conteste en el mismo puerto no basta para declarar el nuevo backend listo. Un error de inicio detiene únicamente procesos propios comprobados.
+Se comprueba Node, se ejecuta `npm ci` solo al pedir `-InstallDependencies`, se compila salvo `-NoBuild`, se valida Caddy, se inicia el backend, se verifica una **identidad de instancia** sobre salud de loopback y después HTTPS con cadena y nombre. Un servicio ajeno que conteste en el mismo puerto no basta para declarar el nuevo backend listo, ni en el puerto interno ni a través de HTTPS: antes de iniciar se comprueba que ambos puertos estén libres y el probe HTTPS exige el identificador de esta instancia. Un error de inicio detiene únicamente procesos propios comprobados.
 
 **No supone instalación validada en tu Windows.** En Arena se comprobó gramática PowerShell mediante tree-sitter; el parser real/DACL/ciclo Caddy se ejecutaron satisfactoriamente en CI Windows con fixtures el 2026-11-06; ver VERIFICACION.md. Esa VM no sustituye el equipo del usuario ni prueba confianza interactiva de CA, firewall o teléfonos físicos. Ejecuta primero con fixtures en el equipo de destino.
 
@@ -119,9 +119,37 @@ Las sesiones se guardan con token bearer hashado y CSRF propio, con `SESSION_IDL
 
 Por defecto: `%LOCALAPPDATA%\NexoFacturacion\`. Contiene `control.json`, `processes.json`, `data`, `logs`, `secrets` y `caddy-storage`. DACL Windows solo operador y SYSTEM; permisos Unix privados. Se escribe JSON mediante temporal + reemplazo. No sobrescribe claves de una inicialización parcial: **conserva y recupera la configuración**, no borres la clave para reintentar.
 
-`-Mode`, dominio e IP se aplican **al inicializar**. Una configuración ya existente se reutiliza. Para ensayar otro despliegue utiliza `-StateDirectory` distinto y datos ficticios; para migrar el mismo negocio, detén el servicio y revisa conjuntamente `control.json`, Caddyfile, orígenes, DNS y rutas de datos/secretos con tu administrador. No recrees claves ni copies bases activas a mano.
+`-Mode`, dominio e IP se aplican **al inicializar**. Los puertos sí pueden cambiarse después con `-Action SetPort` (ver [Convivencia con NovaGest](#convivencia-con-novagest-u-otra-app-en-el-mismo-puerto)). Una configuración ya existente se reutiliza. Para ensayar otro despliegue utiliza `-StateDirectory` distinto y datos ficticios; para migrar el mismo negocio, detén el servicio y revisa conjuntamente `control.json`, Caddyfile, orígenes, DNS y rutas de datos/secretos con tu administrador. No recrees claves ni copies bases activas a mano.
 
 Hay exclusión mutua para operaciones de control. Un menú abierto mantiene el bloqueo: usa sus opciones o sal manteniendo servicios antes de ejecutar otra operación. `Status` es lectura. No hay un servicio Windows instalado automáticamente ni alta silenciosa de tareas programadas.
+
+### Convivencia con NovaGest u otra app en el mismo puerto
+
+Nexo usa **`https://localhost:8450`** por defecto (puerto interno 3000). NovaGest (`yhquintero/inventario`) usa **8443** (Web + API) y **8444** en el mismo PC. Las instalaciones de Nexo anteriores a este cambio usaban 8443.
+
+Si dos programas usan el mismo puerto, Windows lo permite sin avisar: uno escucha en `0.0.0.0` y el otro en `127.0.0.1`. Al abrir la dirección aparece **la pantalla de inicio de sesión de la otra aplicación**. La aplicación instalable de NovaGest además guarda su pantalla para usarla sin conexión, y la sigue mostrando en esa dirección aunque su servidor esté apagado.
+
+Ahora el panel:
+
+- comprueba antes de iniciar que el puerto HTTPS y el interno estén libres, y dice qué programa (nombre y PID) los ocupa;
+- verifica por HTTPS que responde **esta** instancia de Nexo, no solo «algún servicio»;
+- avisa si Windows todavía no confía en la CA local de Nexo.
+
+**Para mover una instalación existente** (conserva datos, cuentas, contraseñas, copias y la confianza en la CA, porque el certificado depende del nombre y no del puerto):
+
+```powershell
+git pull
+pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action SetPort -HttpsPort 8450
+# Solo si el puerto interno también está ocupado:
+pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action SetPort -InternalPort 3010
+# Una vez, si aún no lo hiciste (comprueba antes la huella):
+pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action TrustLocalCA
+pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action Menu
+```
+
+`SetPort` detiene los servicios propios, reescribe el Caddyfile y actualiza `control.json` (origen y orígenes permitidos). No está disponible en modo `Public`, que siempre usa 443. En modo LAN, abre la dirección nueva en cada móvil. Si tenías la regla de firewall del puerto anterior, elimínala desde PowerShell elevado (`Remove-NetFirewallRule -Name Nexo-LAN-HTTPS-8443`) y vuelve a ejecutar `-Action OpenLanFirewall`.
+
+**Si el navegador sigue mostrando NovaGest en `https://localhost:8443`**, es la pantalla que guardó su aplicación instalable. Abre Nexo en la dirección nueva que indica el panel (`https://localhost:8450`). Para limpiar la antigua: en Chrome o Edge, abre `https://localhost:8443` → F12 → *Application* → *Service workers* → *Unregister*, y después *Storage* → *Clear site data*. Hazlo solo si NovaGest no usa esa dirección en este PC, porque en ese caso es suya.
 
 ## 3. Confianza HTTPS local/LAN: no basta el candado configurado
 
@@ -135,7 +163,7 @@ El panel genera una CA local con Caddy (`skip_install_trust`). Informa la ruta a
    Pide escribir `CONFIAR` y modifica solo `Cert:\CurrentUser\Root`. Firefox u otros navegadores pueden requerir su propio procedimiento.
 3. En cada móvil, instala **solo el certificado raíz público** y habilita confianza mediante el procedimiento del sistema/navegador. En iOS puede requerir activar confianza plena en Ajustes; en Android la aceptación de CA de usuario depende del cliente y política del dispositivo. Verifica el candado y nombre/IP; **no ignores advertencias de certificado**.
 4. Nunca compartas `caddy-storage`, `root.key`, `intermediate.key`, claves TLS, `backup.key`, hashes de acceso ni el directorio de estado completo.
-5. Desde el móvil abre `https://IP-DEL-SERVIDOR:8443`, no `localhost`. Usa la misma Wi-Fi, reserva DHCP/IP fija y comprueba que la red no aísle clientes.
+5. Desde el móvil abre `https://IP-DEL-SERVIDOR:8450` (o el puerto que muestre el panel), no `localhost`. Usa la misma Wi-Fi, reserva DHCP/IP fija y comprueba que la red no aísle clientes.
 
 Para abrir exclusivamente HTTPS a la subred local en Windows, acción explícita desde PowerShell elevado **solo para esa operación**, con el mismo usuario y estado:
 
