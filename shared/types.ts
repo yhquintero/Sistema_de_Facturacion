@@ -305,3 +305,11 @@ export interface DashboardStats {
   totalClientsCount: number;
   totalEquipmentsIntervened: number;
 }
+
+/** Meta de facturación de una moneda (importes con impuestos). 0 = sin meta. */
+export interface RevenueGoal {
+  monthly: number;
+  yearly: number;
+}
+/** Metas por código de moneda, p. ej. `{ USD: { monthly: 3000, yearly: 36000 } }`. */
+export type RevenueGoals = Record<string, RevenueGoal>;

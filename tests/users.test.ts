@@ -96,6 +96,7 @@ test('billing managers handle clients, contracts and collection status, but not 
   assert.equal((await call(`/api/clients/${client.body.id}`, 'DELETE', undefined, gema)).status, 200);
   assert.equal((await call('/api/invoices/inv-01/status', 'PATCH', { status: 'pagada' }, gema)).status, 200);
   assert.equal((await call('/api/supplier', 'PUT', { city: 'Otra' }, gema)).status, 403);
+  assert.equal((await call('/api/goals', 'GET', undefined, gema)).status, 200); assert.equal((await call('/api/goals', 'PUT', { USD: { monthly: 1, yearly: 12 } }, gema)).status, 403);
   assert.equal((await call('/api/users', 'GET', undefined, gema)).status, 403);
   assert.equal((await call('/api/security-events', 'GET', undefined, gema)).status, 403);
 });

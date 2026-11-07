@@ -34,7 +34,7 @@ export function Modal({ title, subtitle, children, onClose, wide = false }: { ti
     document.body.style.overflow = 'hidden';
     const el = ref.current;
     const controls = () => [...(el?.querySelectorAll<HTMLElement>('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex="0"]') || [])].filter(e => e.getClientRects().length > 0);
-    const first = controls()[0]; first?.focus();
+    const first = el?.querySelector<HTMLElement>('[data-autofocus]') || controls()[0]; first?.focus();
     const appRoot = document.getElementById('root'); const wasInert = appRoot?.inert || false;
     if (appRoot) appRoot.inert = true;
     const onKey = (e: KeyboardEvent) => {
