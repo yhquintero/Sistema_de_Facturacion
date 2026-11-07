@@ -1,3 +1,4 @@
+import { routeParam } from '../routeParam';
 import type { Express, NextFunction, Request, Response } from 'express';
 import { fiscalProfile, saveFiscalProfile, listFiscalEntries, postFiscalEntry, reverseFiscalEntry, fiscalReport } from './store';
 import { fiscalCsv, fiscalPackage, fiscalXlsx } from './exporter';
@@ -13,12 +14,12 @@ export function installFiscalRoutes(app: Express) {
   const limit = createLimiter(10,60_000);
   app.get('/api/fiscal/profile',handle(() => fiscalProfile())); app.put('/api/fiscal/profile',handle(req => saveFiscalProfile(req.body),true));
   app.get('/api/fiscal/entries',handle(req => listFiscalEntries(yearOf(req.query.year)))); app.post('/api/fiscal/entries',handle(req => postFiscalEntry(req.body),true));
-  app.post('/api/fiscal/entries/:id/reverse',handle(req => reverseFiscalEntry(req.params.id,req.body),true));
+  app.post('/api/fiscal/entries/:id/reverse',handle(req => reverseFiscalEntry(routeParam(req, 'id'),req.body),true));
   app.get('/api/fiscal/report',handle(req => fiscalReport(yearOf(req.query.year))));
   app.get('/api/fiscal/export/:format', async (req,res,next) => {
     if (!limit(peerId(req),res)) return;
     try {
-      const report = fiscalReport(yearOf(req.query.year)), format = req.params.format;
+      const report = fiscalReport(yearOf(req.query.year)), format = routeParam(req, 'format');
       if (format === 'dj08') { res.status(409).json({ error: report.officialSubmission.reason, officialSubmission: report.officialSubmission }); return; }
       if (!['xlsx','csv','zip'].includes(format)) { res.status(400).json({ error: 'Formato auxiliar no admitido. Usa xlsx, csv o zip.' }); return; }
       if (!report.chain.matches) { res.status(409).json({ error: 'La integridad del libro fiscal no coincide. Exportación bloqueada; conserva e investiga el original.' }); return; }

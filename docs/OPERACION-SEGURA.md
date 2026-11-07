@@ -5,10 +5,33 @@
 ## 1. Antes de datos reales
 
 - Equipo y sistema operativo soportados, Node **22.13+** (validado aquí con 22.22.3), **PowerShell 7.4+** y Caddy oficial. Windows PowerShell 5.1 no basta. Comprueba `node --version`, `pwsh --version`, `caddy version`.
+
 - Instala los binarios desde sus proyectos oficiales y contrasta checksums/origen. El panel **no descarga ejecutables**, no omite ExecutionPolicy, no deshabilita antivirus y no instala CA ni abre firewall sin una acción explícita.
 - Confirma ubicación física de servidor y réplicas, aviso de privacidad, responsable, conservación y registro/gestiones que procedan. Para Cuba, Res. 58/2022 art. 7 impide asumir que un túnel o nube extranjera es una opción predeterminada válida. Ver auditoría y fuentes.
 - Activa y verifica BitLocker/LUKS o cifrado equivalente del almacenamiento. **SQLite no se cifra por la aplicación.** Protege también exportaciones y equipos móviles.
 - No uses cuentas de administrador para la operación habitual. No compartas la frase de acceso con clientes; la firma actual es asistida/supervisada por el Suministrador.
+
+### Instalar Caddy en Windows (antes del primer inicio)
+
+El panel necesita el ejecutable de Caddy en `PATH`; `-InstallDependencies` instala únicamente los paquetes npm, no Caddy ni PowerShell. Si `caddy version` no se reconoce, instala Caddy explícitamente:
+
+```powershell
+winget install --id CaddyServer.Caddy --exact
+```
+
+Cierra la terminal y abre una nueva para recoger el `PATH` actualizado. Comprueba:
+
+```powershell
+Get-Command caddy -CommandType Application
+caddy version
+```
+
+Si no utilizas winget, descarga la distribución de tu arquitectura desde las [publicaciones oficiales](https://github.com/caddyserver/caddy/releases), contrasta el checksum del archivo con el manifiesto de esa versión, extrae `caddy.exe` en una carpeta estable y añade esa carpeta al `PATH` del usuario. No uses una ruta temporal ni desactives HTTPS para resolver este error.
+
+### Conflicto npm entre Vite y el plugin React
+
+El proyecto conserva Vite 6 y utiliza `@vitejs/plugin-react` 4.7 compatible. La serie 6 del plugin exige Vite 8. Actualiza juntos `package.json` y `package-lock.json` desde esta corrección y vuelve a ejecutar `-InstallDependencies`; no uses `--force` ni `--legacy-peer-deps`, y no borres el lockfile.
+
 
 ## 2. Inicio automático mediante el panel
 

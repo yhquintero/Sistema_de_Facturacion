@@ -18,6 +18,14 @@ New-Item -ItemType Directory -Path $state | Out-Null
 try {
     & $module {
         param($State)
+        # Debe explicar cómo instalar el requisito, sin filtrar el error de Get-Command.
+        $originalPath = $env:PATH
+        try {
+            $env:PATH = $State
+            $message = ''
+            try { Get-CaddyPath | Out-Null } catch { $message = $_.Exception.Message }
+            if ($message -notmatch 'Caddy no está instalado o no está en PATH' -or $message -notmatch 'winget install' -or $message -notmatch 'caddy version') { throw 'Falta diagnóstico accionable para Caddy ausente.' }
+        } finally { $env:PATH = $originalPath }
         Set-PrivatePermissions $State
         $file = Join-Path $State 'atomic.json'
         Write-PrivateJson $file @{ test = 1 }
@@ -39,6 +47,8 @@ try {
         $selectedNode = & $module { Get-NodePath }
         Assert-True ($selectedNode -is [string] -and $selectedNode -eq $expectedNode) 'Node debe resolverse a una sola ruta respetando la prioridad PATH.'
         $caddy = (Get-Command caddy -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+        $selectedCaddy = & $module { Get-CaddyPath }
+        Assert-True ($selectedCaddy -is [string] -and $selectedCaddy -eq $caddy) 'Caddy debe resolverse a una sola ruta respetando la prioridad PATH.'
         $port = 3143; $httpsPort = 8543
         $configFile = Join-Path $state 'control.json'
         $config = & $module {

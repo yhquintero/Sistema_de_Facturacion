@@ -1,3 +1,4 @@
+import { routeParam } from '../routeParam';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { Express, Request, Response, NextFunction } from 'express';
 import type { RuntimeConfig } from '../config';
@@ -76,8 +77,8 @@ export function installSessions(app: Express, config: RuntimeConfig, explicitPas
   app.use('/api',(req,res,next)=>{const actor=actorRef(req,res);actorStore.run({id:actor.id,name:actor.name},next);});
   app.get('/api/users',requirePermission('users.manage'),(_req,res)=>res.json(listUsers()));
   app.post('/api/users',requirePermission('users.manage'),asyncRoute((req,res)=>createUser(req.body,actorRef(req,res)),201,true));
-  app.put('/api/users/:id',requirePermission('users.manage'),asyncRoute((req,res)=>updateUser(req.params.id,req.body,actorRef(req,res)),200,true));
-  app.delete('/api/users/:id/sessions',requirePermission('users.manage'),(req,res,next)=>{try{const revoked=revokeUserSessions(req.params.id,actorRef(req,res));if(req.params.id===auth(res).user?.id){const{maxAge:_age,...clearing}=cookieOptions(req);res.clearCookie(name(req),clearing);}res.json({ok:true,revoked});publishChange('users');}catch(error){next(error);}});
+  app.put('/api/users/:id',requirePermission('users.manage'),asyncRoute((req,res)=>updateUser(routeParam(req, 'id'),req.body,actorRef(req,res)),200,true));
+  app.delete('/api/users/:id/sessions',requirePermission('users.manage'),(req,res,next)=>{try{const revoked=revokeUserSessions(routeParam(req, 'id'),actorRef(req,res));if(routeParam(req, 'id')===auth(res).user?.id){const{maxAge:_age,...clearing}=cookieOptions(req);res.clearCookie(name(req),clearing);}res.json({ok:true,revoked});publishChange('users');}catch(error){next(error);}});
   app.get('/api/security-events',requirePermission('users.manage'),(req,res)=>res.json(listSecurityEvents(Number(req.query.limit)||100)));
   return { check, get enabled() { return hasUsers(); }, get credentialKind() { return hasUsers() ? 'personal-accounts' : 'demo'; }, sessionCount: () => Number((listUsers()).reduce((n,user)=>n+user.activeSessions,0)) };
 }

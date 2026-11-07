@@ -1,3 +1,4 @@
+import { routeParam } from './routeParam';
 import express, { type ErrorRequestHandler, type Request, type Response } from 'express';
 import { INTERNATIONAL_PAPER_STANDARDS, PAPER_STANDARDS_LIST, type PaperOrientation, type PaperSizeId } from '../shared/paperStandards';
 import { deleteClient, deleteContract, deleteInvoice, deleteServiceCatalogItem, getDashboardStats, getInvoiceById, getInvoiceEvents, getInvoiceIntegrity, getRevenueGoals, getSupplierProfile, getWorkspaceInfo, listClients, listContracts, listInvoices, listServiceCatalog, saveClient, saveRevenueGoals, saveContract, saveInvoice, saveServiceCatalogItem, signInvoiceByClient, updateInvoiceStatus, updateSupplierProfile } from './db';
@@ -35,29 +36,29 @@ export function createApp(options: { password?: string; config?: RuntimeConfig; 
   app.put('/api/goals', requirePermission('supplier.write'), respond(req => saveRevenueGoals(req.body)));
   app.get('/api/clients', respond(() => listClients()));
   app.post('/api/clients', requirePermission('clients.write'), respond(req => saveClient({ ...req.body, id: undefined }), 201));
-  app.put('/api/clients/:id', requirePermission('clients.write'), respond(req => saveClient({ ...req.body, id: req.params.id })));
-  app.delete('/api/clients/:id', requirePermission('clients.write'), respond(req => { deleteClient(req.params.id); return { ok: true }; }));
+  app.put('/api/clients/:id', requirePermission('clients.write'), respond(req => saveClient({ ...req.body, id: routeParam(req, 'id') })));
+  app.delete('/api/clients/:id', requirePermission('clients.write'), respond(req => { deleteClient(routeParam(req, 'id')); return { ok: true }; }));
   app.get('/api/contracts', respond(() => listContracts()));
   app.post('/api/contracts', requirePermission('contracts.write'), respond(req => saveContract({ ...req.body, id: undefined }), 201));
-  app.put('/api/contracts/:id', requirePermission('contracts.write'), respond(req => saveContract({ ...req.body, id: req.params.id })));
-  app.delete('/api/contracts/:id', requirePermission('contracts.write'), respond(req => { deleteContract(req.params.id); return { ok: true }; }));
+  app.put('/api/contracts/:id', requirePermission('contracts.write'), respond(req => saveContract({ ...req.body, id: routeParam(req, 'id') })));
+  app.delete('/api/contracts/:id', requirePermission('contracts.write'), respond(req => { deleteContract(routeParam(req, 'id')); return { ok: true }; }));
   app.get('/api/catalog', respond(() => listServiceCatalog()));
   app.post('/api/catalog', requirePermission('catalog.write'), respond(req => saveServiceCatalogItem({ ...req.body, id: undefined }), 201));
-  app.put('/api/catalog/:id', requirePermission('catalog.write'), respond(req => saveServiceCatalogItem({ ...req.body, id: req.params.id })));
-  app.delete('/api/catalog/:id', requirePermission('catalog.write'), respond(req => { deleteServiceCatalogItem(req.params.id); return { ok: true }; }));
+  app.put('/api/catalog/:id', requirePermission('catalog.write'), respond(req => saveServiceCatalogItem({ ...req.body, id: routeParam(req, 'id') })));
+  app.delete('/api/catalog/:id', requirePermission('catalog.write'), respond(req => { deleteServiceCatalogItem(routeParam(req, 'id')); return { ok: true }; }));
   app.get('/api/invoices', respond(() => listInvoices()));
-  app.get('/api/invoices/:id', respond((req, res) => { const invoice = getInvoiceById(req.params.id); if (!invoice) { res.status(404).json({ error: 'Factura no encontrada.' }); return; } return invoice; }));
+  app.get('/api/invoices/:id', respond((req, res) => { const invoice = getInvoiceById(routeParam(req, 'id')); if (!invoice) { res.status(404).json({ error: 'Factura no encontrada.' }); return; } return invoice; }));
   app.post('/api/invoices', requirePermission('invoices.draft'), respond((req, res) => { if (req.body?.status && req.body.status !== 'borrador') assertCan(res, 'invoices.issue'); return saveInvoice({ ...req.body, id: undefined }); }, 201));
-  app.put('/api/invoices/:id', requirePermission('invoices.draft'), respond((req, res) => { const existing = getInvoiceById(req.params.id); if ((existing && existing.status !== 'borrador') || (req.body?.status && req.body.status !== 'borrador')) assertCan(res, 'invoices.issue'); return saveInvoice({ ...req.body, id: req.params.id }); }));
-  app.patch('/api/invoices/:id/status', requirePermission('invoices.issue'), respond(req => updateInvoiceStatus(req.params.id, req.body?.status)));
-  app.post('/api/invoices/:id/sign', requirePermission('invoices.sign'), respond(req => signInvoiceByClient(req.params.id, req.body)));
-  app.get('/api/invoices/:id/integrity', respond(req => getInvoiceIntegrity(req.params.id)));
-  app.get('/api/invoices/:id/events', respond(req => getInvoiceEvents(req.params.id)));
-  app.delete('/api/invoices/:id', requirePermission('invoices.delete'), respond(req => { deleteInvoice(req.params.id); return { ok: true }; }));
+  app.put('/api/invoices/:id', requirePermission('invoices.draft'), respond((req, res) => { const existing = getInvoiceById(routeParam(req, 'id')); if ((existing && existing.status !== 'borrador') || (req.body?.status && req.body.status !== 'borrador')) assertCan(res, 'invoices.issue'); return saveInvoice({ ...req.body, id: routeParam(req, 'id') }); }));
+  app.patch('/api/invoices/:id/status', requirePermission('invoices.issue'), respond(req => updateInvoiceStatus(routeParam(req, 'id'), req.body?.status)));
+  app.post('/api/invoices/:id/sign', requirePermission('invoices.sign'), respond(req => signInvoiceByClient(routeParam(req, 'id'), req.body)));
+  app.get('/api/invoices/:id/integrity', respond(req => getInvoiceIntegrity(routeParam(req, 'id'))));
+  app.get('/api/invoices/:id/events', respond(req => getInvoiceEvents(routeParam(req, 'id'))));
+  app.delete('/api/invoices/:id', requirePermission('invoices.delete'), respond(req => { deleteInvoice(routeParam(req, 'id')); return { ok: true }; }));
   app.get('/api/invoices/:id/export/:format', (req, res, next) => { if (exportLimit(peerId(req), res)) next(); }, async (req, res, next) => {
     try {
-      const invoice = getInvoiceById(req.params.id); if (!invoice) { res.status(404).json({ error: 'Factura no encontrada.' }); return; }
-      const format = req.params.format.toLowerCase(); const paper = String(req.query.paper || invoice.preferredPaperSize).toUpperCase(); const orientation = String(req.query.orientation || invoice.preferredOrientation);
+      const invoice = getInvoiceById(routeParam(req, 'id')); if (!invoice) { res.status(404).json({ error: 'Factura no encontrada.' }); return; }
+      const format = routeParam(req, 'format').toLowerCase(); const paper = String(req.query.paper || invoice.preferredPaperSize).toUpperCase(); const orientation = String(req.query.orientation || invoice.preferredOrientation);
       if (!['pdf', 'docx', 'xlsx'].includes(format)) { res.status(400).json({ error: 'Formato no soportado. Usa pdf, docx o xlsx.' }); return; }
       if (!Object.hasOwn(INTERNATIONAL_PAPER_STANDARDS, paper) || !['portrait', 'landscape'].includes(orientation)) { res.status(400).json({ error: 'Formato de hoja u orientación no válidos.' }); return; }
       if (invoice.signatureStatus === 'firmada_cliente' && !getInvoiceIntegrity(invoice.id).matches) { res.status(409).json({ error: 'La integridad del contenido firmado no coincide. Revisa el registro original.' }); return; }

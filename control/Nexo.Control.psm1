@@ -30,6 +30,13 @@ function Get-NodePath {
     if ([version]$version -lt [version]'22.13.0') { throw 'Instala Node.js >=22.13 desde una fuente oficial.' }
     return $node
 }
+function Get-CaddyPath {
+    $command = Get-Command caddy -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -eq $command) {
+        throw 'Caddy no está instalado o no está en PATH. En Windows ejecuta: winget install --id CaddyServer.Caddy --exact; después abre una terminal nueva y comprueba: caddy version. Alternativa: instala el binario oficial y añade su carpeta a PATH. Consulta docs/OPERACION-SEGURA.md. El panel no descarga ejecutables ni desactiva HTTPS automáticamente.'
+    }
+    return $command.Source
+}
 function Invoke-Node([string[]] $Arguments, [hashtable] $Environment = @{}) {
     $start = [Diagnostics.ProcessStartInfo]::new()
     $start.FileName = Get-NodePath
@@ -90,7 +97,7 @@ function Initialize-Control($Mode, $Domain, $LanAddress, $HttpsPort, $InternalPo
     if (Get-Config) { throw 'Ya existe configuración. No se sobrescriben datos ni claves. Usa Start o edita una copia revisada de control.json.' }
     if ($Mode -eq 'Public') { $HttpsPort = 443 }
     if ($HttpsPort -eq $InternalPort) { throw 'Los puertos HTTPS e interno deben ser distintos.' }
-    $caddy = (Get-Command caddy -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+    $caddy = Get-CaddyPath
     if ($Mode -eq 'Public') {
         if (!$Domain) { $Domain = Read-Host 'Dominio público propio (solo nombre DNS)' }
         if ($Domain -notmatch '^(?=.{1,253}$)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$' -or $Domain -match '\.(local|localhost|test|invalid)$') { throw 'Indica un dominio DNS propio válido, sin ruta ni protocolo.' }
