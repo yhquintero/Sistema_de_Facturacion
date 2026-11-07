@@ -55,8 +55,8 @@ $env:TLS_MODE='off'; $env:SEED_DEMO='true'; $env:HOST='127.0.0.1'
 npm run dev
 
 npm run typecheck
-npm test
 npm run build
+npm test
 npx playwright install chromium
 npm run test:e2e
 npm audit

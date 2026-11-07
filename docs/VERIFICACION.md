@@ -21,6 +21,8 @@ Entorno: **Node 22.22.3, npm 10.9.8, Debian 12, OpenSSL**. Se usó Chromium 153.
 PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/tmp/chromium LD_LIBRARY_PATH=/tmp/al2023/lib:/tmp npm run test:e2e
 ```
 
+En un checkout limpio, ejecuta `npm run build` antes de `npm test`: la regresión de arranque levanta el servidor productivo real y exige el frontend compilado.
+
 En CI/destino normal: `npx playwright install --with-deps chromium` y `npm run test:e2e`. No replicar flags de un navegador de prueba como política de seguridad de los equipos de usuarios.
 
 Los logs de trabajo están en `tmp/tests-delivery.log`, `tmp/build-delivery.log`, `tmp/e2e-delivery.log`, `tmp/audit-after.json` (no versionados ni parte del paquete). La evidencia reproducible persistente es el código de pruebas y los comandos, no un certificado emitido por un tercero.
@@ -39,7 +41,7 @@ Los logs de trabajo están en `tmp/tests-delivery.log`, `tmp/build-delivery.log`
 
 ## Añadido, pero NO ejecutado/acreditado aquí
 
-- CI `.github/workflows/ci.yml`: acciones fijadas a SHA, npm audit, pruebas/build/browser, SBOM CycloneDX; job Windows que descarga Caddy oficial fijado, contrasta SHA-256 y ejecuta parser PowerShell real, módulo, DACL privada, JSON atómico, comprobación PID, inicio con HTTPS local, backup, reinicio y parada. **No hay un run de esa nueva CI acreditado en esta entrega.**
+- CI `.github/workflows/ci.yml`: acciones fijadas a SHA, npm audit, pruebas/build/browser, SBOM CycloneDX; job Windows que descarga Caddy oficial fijado, contrasta SHA-512 oficial de la distribución y ejecuta parser PowerShell real, módulo, DACL privada, JSON atómico, comprobación PID, inicio con HTTPS local, backup, reinicio y parada. **No hay un run de esa nueva CI acreditado en esta entrega.**
 - `tests/powershell/Panel.Tests.ps1 -Integration`: listo para el runner/equipo Windows, no sustituto de probar la introducción interactiva de frase, política de ejecución, confianza CA y firewall en el Windows del usuario.
 - Caddy/PowerShell/Docker nativos no estaban instalados en el sandbox. Descargas de binarios por redirect de GitHub no estuvieron disponibles; no se ignoró TLS ni se usó un túnel para eludir restricciones. La gramática PS se comprobó separadamente mediante parser temporal de npm, sin afirmar ejecución Windows.
 - No hubo escaneo de puertos/SSL público, pentest externo, carga/DoS, escáner de imágenes Docker, revisión AV/EDR/BitLocker, Wi-Fi/router real, Android/iOS físicos, instalación nativa ni pinning.

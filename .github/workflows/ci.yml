@@ -19,6 +19,8 @@ jobs:
       - run: npm ci
       - run: npm audit --audit-level=high
       - run: npm run typecheck
+      # The real production-startup regression requires the compiled frontend.
+      - run: npm run build
       - name: Unit/API tests with failure diagnostics
         run: |
           set +e
@@ -36,15 +38,16 @@ jobs:
             '
           fi
           exit "$test_status"
-      - run: npm run build
       - run: npm sbom --sbom-format=cyclonedx --omit=dev > sbom.cdx.json
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: failure()
         with:
-          name: navegador-diagnosticos-solo-datos-sinteticos
-          path: test-results/
+          name: diagnosticos-solo-datos-sinteticos
+          path: |
+            test-results/
+            unit-tests.log
           retention-days: 7
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -84,7 +87,9 @@ jobs:
             $line = Get-Content (Join-Path $tools "caddy_${version}_checksums.txt") | Where-Object { $_ -match "\s+caddy_${version}_windows_amd64\.zip$" }
             if (@($line).Count -ne 1) { throw 'Checksum oficial no encontrado de forma inequívoca.' }
             $expected = ($line -split '\s+')[0]
-            if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected.ToLowerInvariant()) { throw 'Checksum de Caddy no coincide.' }
+            # Caddy v2.11.9 .goreleaser.yml specifies SHA-512 for the release manifest.
+            if ($expected -notmatch '^[a-fA-F0-9]{128}$') { throw 'SHA-512 oficial de Caddy malformado.' }
+            if ((Get-FileHash $archive -Algorithm SHA512).Hash.ToLowerInvariant() -cne $expected.ToLowerInvariant()) { throw 'Checksum de Caddy no coincide.' }
             Expand-Archive -LiteralPath $archive -DestinationPath $tools
             $tools | Out-File $env:GITHUB_PATH -Append -Encoding utf8
           } catch {
