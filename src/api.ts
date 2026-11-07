@@ -1,3 +1,6 @@
+import type { FiscalProfile, FiscalEntryInput, FiscalEntry, FiscalReport } from '../shared/fiscal';
+import type { SecurityStatus } from '../shared/security';
+import { csrfHeaders } from './lib/security';
 import type { InvoiceAuditEvent, InvoiceIntegrity } from './components/InvoiceAudit';
 import type { PaperOrientation, PaperSizeId } from '../shared/paperStandards';
 import type { SecurityEvent, SessionInfo, UserRole, WorkspaceUser } from '../shared/permissions';
@@ -18,6 +21,7 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...csrfHeaders(),
       ...(init?.headers || {}),
     },
   });
@@ -39,6 +43,16 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  getFiscalReport: (year: number) => requestJson<FiscalReport>(`/api/fiscal/report?year=${year}`),
+  saveFiscalProfile: (data: FiscalProfile) => requestJson<FiscalProfile>('/api/fiscal/profile', { method: 'PUT', body: JSON.stringify(data) }),
+  postFiscalEntry: (data: FiscalEntryInput) => requestJson<FiscalEntry>('/api/fiscal/entries', { method: 'POST', body: JSON.stringify(data) }),
+  reverseFiscalEntry: (id: string, data: { occurredOn: string; reason: string; idempotencyKey: string }) => requestJson<FiscalEntry>(`/api/fiscal/entries/${encodeURIComponent(id)}/reverse`, { method: 'POST', body: JSON.stringify(data) }),
+  getSecurityStatus: () => requestJson<SecurityStatus>('/api/security/status'),
+  downloadFiscal: async (year: number, format: 'xlsx' | 'csv' | 'zip') => {
+    const response = await fetch(`/api/fiscal/export/${format}?year=${year}`, { cache: 'no-store' });
+    if (!response.ok) { if (response.status === 401) window.dispatchEvent(new Event('session-expired')); const data = await response.json().catch(() => ({})); throw new Error(data.error || 'No se pudo generar el expediente fiscal.'); }
+    const url = URL.createObjectURL(await response.blob()); const link = document.createElement('a'); link.href = url; link.download = `AUXILIAR_NO_OFICIAL_CUBA_${year}.${format}`; document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+  },
   getHealth: () =>
     requestJson<{ ok: boolean; service: string; timestamp: string }>('/api/health'),
 

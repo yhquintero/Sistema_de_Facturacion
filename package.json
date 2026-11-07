@@ -12,7 +12,12 @@
     "test": "node --import tsx --test tests/*.test.ts",
     "test:e2e": "playwright test",
     "backup": "node --env-file-if-exists=.env --import tsx scripts/backup.ts",
-    "user:reset-password": "node --env-file-if-exists=.env --import tsx scripts/reset-password.ts"
+    "user:reset-password": "node --env-file-if-exists=.env --import tsx scripts/reset-password.ts",
+    "password:hash": "node --import tsx scripts/password.ts",
+    "backup:key": "node --import tsx scripts/generate-backup-key.ts",
+    "backup:decrypt": "node --env-file-if-exists=.env --import tsx scripts/restore.ts",
+    "probe:https": "node --import tsx scripts/probe-https.ts",
+    "package:service": "node --import tsx scripts/package-service.ts"
   },
   "dependencies": {
     "decimal.js": "^10.6.0",

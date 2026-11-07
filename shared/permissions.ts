@@ -16,21 +16,24 @@ export const PERMISSIONS = [
   'invoices.issue',
   'invoices.delete',
   'invoices.sign',
+  'fiscal.read',
+  'fiscal.write',
+  'security.read',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
 export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   admin: PERMISSIONS,
-  gestor: ['catalog.write', 'clients.write', 'contracts.write', 'invoices.draft', 'invoices.issue', 'invoices.delete', 'invoices.sign'],
+  gestor: ['fiscal.read', 'fiscal.write', 'catalog.write', 'clients.write', 'contracts.write', 'invoices.draft', 'invoices.issue', 'invoices.delete', 'invoices.sign'],
   tecnico: ['invoices.draft', 'invoices.sign'],
-  lectura: [],
+  lectura: ['fiscal.read'],
 };
 
 export const ROLE_INFO: Record<UserRole, { label: string; short: string; description: string }> = {
   admin: { label: 'Administrador', short: 'Admin', description: 'Control total: usuarios, datos del Suministrador, catálogo, clientes, contratos y facturas.' },
-  gestor: { label: 'Gestor de facturación', short: 'Gestor', description: 'Clientes, contratos, catálogo y ciclo completo de facturas: emitir, cobrar, anular y eliminar borradores.' },
+  gestor: { label: 'Gestor de facturación', short: 'Gestor', description: 'Clientes, contratos, catálogo, ciclo completo de facturas y libro fiscal auxiliar.' },
   tecnico: { label: 'Técnico', short: 'Técnico', description: 'Prepara borradores con el desglose técnico por equipo y recoge la firma del Cliente Final. No emite ni cambia cobros.' },
-  lectura: { label: 'Solo lectura', short: 'Lectura', description: 'Consulta facturas, clientes, contratos y catálogo, y descarga documentos. No modifica nada.' },
+  lectura: { label: 'Solo lectura', short: 'Lectura', description: 'Consulta datos comerciales y auxiliares fiscales, y descarga documentos. No modifica nada.' },
 };
 
 export const PERMISSION_LABELS: Record<Permission, string> = {
@@ -40,9 +43,12 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'clients.write': 'Crear, editar y eliminar clientes',
   'contracts.write': 'Crear, editar y eliminar contratos',
   'invoices.draft': 'Crear y editar borradores de factura',
-  'invoices.issue': 'Emitir, editar emitidas y cambiar el estado de cobro',
+  'invoices.issue': 'Emitir, anular y cambiar el estado de cobro (sin reescribir contenido emitido)',
   'invoices.delete': 'Eliminar borradores',
   'invoices.sign': 'Registrar la firma del Cliente Final',
+  'fiscal.read': 'Consultar y exportar el libro fiscal auxiliar',
+  'fiscal.write': 'Registrar movimientos, reversiones y perfil fiscal',
+  'security.read': 'Consultar el estado de seguridad operativa',
 };
 
 export function isUserRole(value: unknown): value is UserRole {
@@ -63,8 +69,9 @@ export type SessionInfo = {
   permissions: Permission[];
   /** true cuando no hay cuentas y el servidor permite crear el primer administrador desde la interfaz. */
   setupAvailable: boolean;
+  csrfToken?: string;
 };
 
-export const PASSWORD_MIN_LENGTH = 12;
-export const PASSWORD_MAX_LENGTH = 256;
+export const PASSWORD_MIN_LENGTH = 14;
+export const PASSWORD_MAX_LENGTH = 1024;
 export const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{2,39}$/;

@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID, scrypt as scryptCallback, scryptSy
 import { z } from 'zod';
 import { db } from './db';
 import { validate } from './validation';
+import { hashPassword as newHash, verifyPassword as verifyNewHash } from './security/password';
 import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, USER_ROLES, USERNAME_PATTERN, type SecurityEvent, type SessionUser, type UserRole, type WorkspaceUser } from '../shared/permissions';
 
 /* ============================================================================
@@ -47,6 +48,11 @@ db.exec(`
   );
 `);
 
+const sessionColumns = db.prepare('PRAGMA table_info(user_sessions)').all() as { name: string }[];
+for (const [name, definition] of [['last_used_at', 'INTEGER NOT NULL DEFAULT 0'], ['csrf_token', "TEXT NOT NULL DEFAULT ''"]]) {
+  if (!sessionColumns.some(column => column.name === name)) db.exec(`ALTER TABLE user_sessions ADD COLUMN ${name} ${definition}`);
+}
+
 export const SESSION_TTL_MS = 8 * 60 * 60_000;
 const MAX_SESSIONS_PER_USER = 20;
 const SCRYPT = { N: 16384, r: 8, p: 1, keyLength: 64 } as const;
@@ -55,22 +61,18 @@ function scrypt(password: string, salt: Buffer, keyLength: number, options: Scry
   return new Promise<Buffer>((resolve, reject) => scryptCallback(password, salt, keyLength, options, (error, key) => error ? reject(error) : resolve(key)));
 }
 const SCRYPT_OPTIONS = { N: SCRYPT.N, r: SCRYPT.r, p: SCRYPT.p, maxmem: 64 * 1024 * 1024 };
-const formatHash = (salt: Buffer, key: Buffer) => `scrypt$${SCRYPT.N}$${SCRYPT.r}$${SCRYPT.p}$${salt.toString('base64')}$${key.toString('base64')}`;
-export async function hashPassword(password: string): Promise<string> {
-  const salt = randomBytes(16);
-  return formatHash(salt, await scrypt(password.normalize('NFKC'), salt, SCRYPT.keyLength, SCRYPT_OPTIONS));
-}
-/** Solo para el arranque (una vez); el resto de operaciones usa la versión asíncrona. */
-function hashPasswordSync(password: string): string {
-  const salt = randomBytes(16);
-  return formatHash(salt, scryptSync(password.normalize('NFKC'), salt, SCRYPT.keyLength, SCRYPT_OPTIONS));
-}
+export async function hashPassword(password: string): Promise<string> { return newHash(password); }
+/** Existing PR #2 scrypt credentials are verified without rewriting or losing accounts. */
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  const [scheme, n, r, p, salt, hash] = stored.split('$');
-  if (scheme !== 'scrypt' || !salt || !hash) return false;
-  const expected = Buffer.from(hash, 'base64');
-  const key = await scrypt(password.normalize('NFKC'), Buffer.from(salt, 'base64'), expected.length, { N: Number(n), r: Number(r), p: Number(p), maxmem: 64 * 1024 * 1024 });
-  return key.length === expected.length && timingSafeEqual(key, expected);
+  try {
+    if (stored.startsWith('scrypt$32768$8$1$')) return await verifyNewHash(password, stored);
+    const [scheme,n,r,p,salt,hash,...extra] = stored.split('$');
+    if (scheme !== 'scrypt' || n !== '16384' || r !== '8' || p !== '1' || extra.length || !salt || !hash || !/^[A-Za-z0-9+/=]+$/.test(salt+hash)) return false;
+    const expected = Buffer.from(hash,'base64'), decodedSalt = Buffer.from(salt,'base64');
+    if (expected.length !== 64 || decodedSalt.length !== 16) return false;
+    const key = await scrypt(password.normalize('NFKC'), decodedSalt, 64, SCRYPT_OPTIONS);
+    return timingSafeEqual(key, expected);
+  } catch { return false; }
 }
 /** Hash señuelo para igualar el tiempo de respuesta cuando el usuario no existe. */
 let decoyHash: Promise<string> | undefined;
@@ -194,24 +196,25 @@ export async function resetPasswordFromConsole(name: string, newPassword: string
 }
 
 const tokenDigest = (token: string) => createHash('sha256').update(token).digest('hex');
-export function createSession(userId: string, meta: { ip?: string; userAgent?: string } = {}): { token: string; tokenHash: string } {
+export function createSession(userId: string, meta: { ip?: string; userAgent?: string } = {}): { token: string; tokenHash: string; csrfToken: string } {
   const now = Date.now();
-  db.prepare('DELETE FROM user_sessions WHERE expires_at <= ?').run(now);
-  db.prepare('DELETE FROM user_sessions WHERE user_id=? AND token_hash IN (SELECT token_hash FROM user_sessions WHERE user_id=? ORDER BY expires_at DESC LIMIT -1 OFFSET ?)').run(userId, userId, MAX_SESSIONS_PER_USER - 1);
-  const token = randomBytes(32).toString('hex'); const tokenHash = tokenDigest(token);
-  db.prepare('INSERT INTO user_sessions (token_hash,user_id,created_at,expires_at,ip,user_agent) VALUES (?,?,?,?,?,?)').run(tokenHash, userId, new Date(now).toISOString(), now + SESSION_TTL_MS, (meta.ip || '').slice(0, 64), (meta.userAgent || '').slice(0, 300));
-  db.prepare('UPDATE users SET last_login_at=? WHERE id=?').run(new Date(now).toISOString(), userId);
-  return { token, tokenHash };
+  db.prepare("DELETE FROM user_sessions WHERE expires_at <= ? OR last_used_at <= ? OR csrf_token='' ").run(now,now-30*60_000);
+  db.prepare('DELETE FROM user_sessions WHERE user_id=? AND token_hash IN (SELECT token_hash FROM user_sessions WHERE user_id=? ORDER BY expires_at DESC LIMIT -1 OFFSET ?)').run(userId,userId,MAX_SESSIONS_PER_USER-1);
+  if (Number((db.prepare('SELECT COUNT(*) AS total FROM user_sessions').get() as {total:number}).total) >= 256) throw Object.assign(new Error('Límite de sesiones alcanzado. Cierra una sesión o espera su caducidad.'),{status:503});
+  const token=randomBytes(32).toString('hex'),tokenHash=tokenDigest(token),csrfToken=randomBytes(32).toString('base64url');
+  db.prepare('INSERT INTO user_sessions (token_hash,user_id,created_at,expires_at,ip,user_agent,last_used_at,csrf_token) VALUES (?,?,?,?,?,?,?,?)').run(tokenHash,userId,new Date(now).toISOString(),now+SESSION_TTL_MS,(meta.ip||'').slice(0,64),(meta.userAgent||'').slice(0,300),now,csrfToken);
+  db.prepare('UPDATE users SET last_login_at=? WHERE id=?').run(new Date(now).toISOString(),userId);
+  return {token,tokenHash,csrfToken};
 }
-export function resolveSession(token: string): { user: WorkspaceUser; tokenHash: string } | null {
+export function resolveSession(token: string, touch = true): { user: WorkspaceUser; tokenHash: string; csrfToken: string } | null {
   if (!token || token.length > 200) return null;
-  const tokenHash = tokenDigest(token);
-  const row = db.prepare('SELECT user_id, expires_at FROM user_sessions WHERE token_hash=?').get(tokenHash) as { user_id: string; expires_at: number } | undefined;
+  const tokenHash=tokenDigest(token),now=Date.now();
+  const row=db.prepare('SELECT user_id,expires_at,last_used_at,csrf_token FROM user_sessions WHERE token_hash=?').get(tokenHash) as {user_id:string;expires_at:number;last_used_at:number;csrf_token:string}|undefined;
   if (!row) return null;
-  if (row.expires_at <= Date.now()) { db.prepare('DELETE FROM user_sessions WHERE token_hash=?').run(tokenHash); return null; }
-  const user = getUser(row.user_id);
-  if (!user || !user.active) { db.prepare('DELETE FROM user_sessions WHERE token_hash=?').run(tokenHash); return null; }
-  return { user, tokenHash };
+  const user=getUser(row.user_id);
+  if (row.expires_at<=now || row.last_used_at+30*60_000<=now || !row.csrf_token || !user?.active) { db.prepare('DELETE FROM user_sessions WHERE token_hash=?').run(tokenHash); return null; }
+  if (touch) db.prepare('UPDATE user_sessions SET last_used_at=? WHERE token_hash=?').run(now,tokenHash);
+  return {user,tokenHash,csrfToken:row.csrf_token};
 }
 export function deleteSession(token: string) { if (token) db.prepare('DELETE FROM user_sessions WHERE token_hash=?').run(tokenDigest(token)); }
 export function revokeUserSessions(userId: string, actor: ActorRef): number {
@@ -227,8 +230,17 @@ export function revokeUserSessions(userId: string, actor: ActorRef): number {
  */
 export function bootstrapAdminFromPassword(sharedPassword: string, name = 'admin'): WorkspaceUser | null {
   if (!sharedPassword || hasUsers()) return null;
-  const data = validate(createUserSchema, { username: name, displayName: 'Administrador', role: 'admin', password: sharedPassword, mustChangePassword: false });
-  const user = insertUser(data, hashPasswordSync(data.password), { id: '', name: 'Arranque del servidor' });
-  recordSecurityEvent('bootstrap_admin', { id: '', name: 'Arranque del servidor' }, { id: user.id, name: user.username }, { source: 'APP_PASSWORD' });
+  const data=validate(createUserSchema,{username:name,displayName:'Administrador',role:'admin',password:sharedPassword,mustChangePassword:false});
+  return bootstrapAdminFromHash(hashPasswordLegacyBootstrap(data.password),data.username);
+}
+function hashPasswordLegacyBootstrap(value: string) {
+  const salt=randomBytes(16);
+  return `scrypt$32768$8$1$${salt.toString('base64url')}$${scryptSync(value,salt,32,{N:32768,r:8,p:1,maxmem:64*1024*1024}).toString('base64url')}`;
+}
+export function bootstrapAdminFromHash(encoded: string, name = 'admin'): WorkspaceUser | null {
+  if (!encoded || hasUsers()) return null;
+  const login=validate(username,name);
+  const user=insertUser({username:login,displayName:'Administrador',role:'admin',password:'',mustChangePassword:false},encoded,{id:'',name:'Arranque del servidor'});
+  recordSecurityEvent('bootstrap_admin',{id:'',name:'Arranque del servidor'},{id:user.id,name:user.username},{source:'configured-initial-credential'});
   return user;
 }

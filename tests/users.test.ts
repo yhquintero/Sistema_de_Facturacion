@@ -14,7 +14,8 @@ after(async () => { await new Promise<void>(resolve => server.close(() => resolv
 
 type Call = { status: number; body: any; cookie: string };
 async function call(url: string, method = 'GET', body?: unknown, cookie = ''): Promise<Call> {
-  const response = await fetch(`${origin}${url}`, { method, headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const csrfToken = cookie && !['GET','HEAD','OPTIONS'].includes(method) ? (await (await fetch(`${origin}/api/session`, {headers:{Cookie:cookie}})).json()).csrfToken || '' : '';
+  const response = await fetch(`${origin}${url}`, { method, headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie, 'X-CSRF-Token':csrfToken } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
   const text = await response.text(); let parsed: any = text; try { parsed = JSON.parse(text); } catch { /* binary */ }
   return { status: response.status, body: parsed, cookie: response.headers.get('set-cookie')?.split(';')[0] || '' };
 }
@@ -50,7 +51,7 @@ test('administrators create accounts with validated, hashed passwords and unique
   assert.equal((await call('/api/users', 'POST', { username: 'corta', displayName: 'X', role: 'gestor', password: '12345' }, admin)).status, 400);
   assert.equal((await call('/api/users', 'POST', { username: 'superusuario', displayName: 'X', role: 'root', password: 'otra-clave-bastante-larga' }, admin)).status, 400);
   const rows = db.prepare('SELECT username, password_hash FROM users').all() as { username: string; password_hash: string }[];
-  for (const row of rows) { assert.match(row.password_hash, /^scrypt\$16384\$8\$1\$/); assert.ok(!row.password_hash.includes(row.username)); }
+  for (const row of rows) { assert.match(row.password_hash, /^scrypt\$32768\$8\$1\$/); assert.ok(!row.password_hash.includes(row.username)); }
   const listed = (await call('/api/users', 'GET', undefined, admin)).body; assert.equal(listed.length, 4); assert.ok(listed.every((u: Record<string, unknown>) => !('passwordHash' in u) && !('password_hash' in u)));
   const token = admin.split('=')[1]; assert.equal(db.prepare('SELECT 1 FROM user_sessions WHERE token_hash=?').get(token), undefined, 'session tokens are only stored as hashes');
 });
@@ -141,4 +142,61 @@ test('security log records sign-ins, failures and account administration without
   for (const type of ['setup_admin', 'user_created', 'login_succeeded', 'login_failed', 'role_changed', 'user_deactivated', 'password_reset', 'password_changed', 'password_change_failed', 'sessions_revoked']) assert.ok(types.has(type), type);
   assert.ok(!JSON.stringify(events).includes('clave-de-'), 'passwords never reach the log');
   assert.ok(!JSON.stringify(events).includes('temporal-para-tomas'));
+});
+
+test('fiscal and operational routes enforce personal roles even with a valid CSRF token', async () => {
+  const credentials: Record<string,string> = {};
+  for (const role of ['gestor','tecnico','lectura'] as const) {
+    const username=`fiscal.${role}`, password=`PUBLIC-FISCAL-FIXTURE-${role}-2026`;
+    assert.equal((await call('/api/users','POST',{username,displayName:`Fixture ${role}`,role,password,mustChangePassword:false},admin)).status,201);
+    credentials[role]=await login(username,password);
+  }
+  for(const role of ['gestor','lectura']) assert.equal((await call('/api/fiscal/report?year=2026','GET',undefined,credentials[role])).status,200);
+  assert.equal((await call('/api/fiscal/report?year=2026','GET',undefined,credentials.tecnico)).status,403);
+  for(const role of ['gestor','tecnico','lectura']) assert.equal((await call('/api/goals','PUT',{CUP:{monthly:1000,yearly:12000}},credentials[role])).status,403);
+  assert.equal((await call('/api/goals','PUT',{CUP:{monthly:1000,yearly:12000}},admin)).status,200);
+  assert.equal((await call('/api/security/status','GET',undefined,credentials.gestor)).status,403);
+  assert.equal((await call('/api/security/status','GET',undefined,admin)).body.authentication.multiuser,true);
+  const input={occurredOn:'2026-01-15',kind:'income',description:'Cobro de fixture de permisos fiscales',originalAmount:5,currency:'CUP',exchangeRate:1,exchangeRateSource:'',exchangeRateDate:'',evidenceReference:'FIXTURE-ONLY-FISCAL',documented:true,taxCode:'',invoiceId:'',deductibility:'not_deductible',classificationBasis:'',idempotencyKey:crypto.randomUUID()};
+  for(const role of ['tecnico','lectura']) {
+    assert.equal((await call('/api/fiscal/entries','POST',input,credentials[role])).status,403);
+    assert.equal((await call('/api/fiscal/profile','PUT',{},credentials[role])).status,403);
+  }
+  const created=await call('/api/fiscal/entries','POST',input,credentials.gestor); assert.equal(created.status,201,JSON.stringify(created.body));
+  assert.equal((await call('/api/fiscal/export/csv?year=2026','GET',undefined,credentials.lectura)).status,200);
+  assert.equal((await call(`/api/fiscal/entries/${created.body.id}/reverse`,'POST',{occurredOn:'2026-01-16',reason:'Reversión de fixture fiscal',idempotencyKey:crypto.randomUUID()},credentials.lectura)).status,403);
+  assert.equal((await call(`/api/fiscal/entries/${created.body.id}/reverse`,'POST',{occurredOn:'2026-01-16',reason:'Reversión de fixture fiscal',idempotencyKey:crypto.randomUUID()},credentials.gestor)).status,201);
+});
+
+test('existing PR #2 scrypt credentials remain usable and bootstrap settings do not overwrite accounts', async () => {
+  const {randomBytes,scryptSync}=await import('node:crypto');
+  const password='PUBLIC-LEGACY-FIXTURE-CONTRASEÑA-2026',salt=randomBytes(16);
+  const created=await call('/api/users','POST',{username:'legacy.account',displayName:'Fixture legado',role:'lectura',password,mustChangePassword:false},admin);assert.equal(created.status,201);
+  const encoded=`scrypt$16384$8$1$${salt.toString('base64')}$${scryptSync(password.normalize('NFKC'),salt,64,{N:16384,r:8,p:1,maxmem:64*1024*1024}).toString('base64')}`;
+  db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(encoded,created.body.id);
+  const before=db.prepare('SELECT COUNT(*) AS n FROM users').get()?.n;
+  createApp({password:'OTHER-BOOTSTRAP-FIXTURE-NOT-AN-OVERRIDE'});
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM users').get()?.n,before);
+  assert.equal(db.prepare('SELECT password_hash FROM users WHERE id=?').get(created.body.id)?.password_hash,encoded);
+  const session=await login('legacy.account',password); assert.equal((await call('/api/invoices','GET',undefined,session)).status,200);
+  const changed=await call('/api/me/password','PUT',{currentPassword:password,newPassword:'PUBLIC-NEW-FIXTURE-PASSWORD-2026'},session);assert.equal(changed.status,200);
+  assert.match(String(db.prepare('SELECT password_hash FROM users WHERE id=?').get(created.body.id)?.password_hash),/^scrypt\$32768\$8\$1\$/);
+});
+
+test('account administration requires the CSRF token of the same authenticated session', async () => {
+  const other=await login('legacy.account','PUBLIC-NEW-FIXTURE-PASSWORD-2026');
+  const otherCsrf=(await call('/api/session','GET',undefined,other)).body.csrfToken;
+  const before=db.prepare('SELECT display_name FROM users WHERE id=?').get(ids.gema)?.display_name;
+  for(const token of ['',otherCsrf]) {
+    const result=await fetch(`${origin}/api/users/${ids.gema}`,{method:'PUT',headers:{Cookie:admin,'Content-Type':'application/json','X-CSRF-Token':token},body:JSON.stringify({displayName:'CSRF MUST NOT CHANGE THIS'})});
+    assert.equal(result.status,403);assert.match((await result.json()).error,/Token de seguridad/);
+  }
+  assert.equal(db.prepare('SELECT display_name FROM users WHERE id=?').get(ids.gema)?.display_name,before);
+});
+
+test('a successful login to another account cannot reset the target account brute-force limit',async()=>{
+  for(let i=0;i<9;i++)assert.equal((await call('/api/login','POST',{username:'legacy.account',password:'WRONG-PUBLIC-FIXTURE'})).status,401);
+  await login('fiscal.gestor','PUBLIC-FISCAL-FIXTURE-gestor-2026');
+  assert.equal((await call('/api/login','POST',{username:'legacy.account',password:'WRONG-PUBLIC-FIXTURE'})).status,401);
+  assert.equal((await call('/api/login','POST',{username:'legacy.account',password:'WRONG-PUBLIC-FIXTURE'})).status,429);
 });

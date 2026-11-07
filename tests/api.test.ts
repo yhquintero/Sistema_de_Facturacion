@@ -9,17 +9,17 @@ import { createSampleSignatureDataUrl } from '../server/utils/signaturePng';
 
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nexo-api-')); process.env.DATA_DIR = directory; process.env.SEED_DEMO = 'true';
 const { createApp } = await import('../server/app'); const { db, getInvoiceById } = await import('../server/db');
-let server: http.Server, origin: string, adminCookie = '';
+let server: http.Server, origin: string, adminCookie = '', adminCsrf = '';
 const password = randomBytes(24).toString('hex');
 before(async () => {
   server = http.createServer(createApp({ password, allowSetup: false })); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-  const login = await fetch(`${origin}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'admin', password }) }); assert.equal(login.status, 200); adminCookie = login.headers.get('set-cookie')!.split(';')[0];
+  const login = await fetch(`${origin}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'admin', password }) }); assert.equal(login.status, 200); adminCookie = login.headers.get('set-cookie')!.split(';')[0]; adminCsrf=(await login.json()).csrfToken;
 });
 after(async () => { await new Promise<void>(resolve => server.close(() => resolve())); db.close(); fs.rmSync(directory, { recursive: true, force: true }); });
-const request = (url: string, method = 'GET', body?: unknown, headers: Record<string, string> = {}) => fetch(`${origin}${url}`, { method, headers: { 'Content-Type': 'application/json', Cookie: adminCookie, ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
+const request = (url: string, method = 'GET', body?: unknown, headers: Record<string, string> = {}) => fetch(`${origin}${url}`, { method, headers: { 'Content-Type': 'application/json', Cookie: adminCookie, 'X-CSRF-Token':adminCsrf, ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
 
 test('health, standards, JSON 404 and same-origin write protection', async () => {
-  const response = await request('/api/health'); assert.equal(response.status, 200); assert.equal((await response.json()).paperStandards.length, 10); assert.equal(response.headers.get('cache-control'), 'no-store');
+  const response = await request('/api/health'); assert.equal(response.status, 200); assert.equal((await response.json()).ok, true); assert.equal((await (await request('/api/paper-standards')).json()).length, 10); assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.equal((await request('/api/does-not-exist')).status, 404); assert.equal((await request('/api/invoices/missing')).status, 404);
   assert.equal((await request('/api/clients', 'POST', { name: 'Evil', code: 'EVIL' }, { Origin: 'https://other.invalid' })).status, 403);
 });
@@ -59,7 +59,7 @@ test('APP_PASSWORD bootstraps an admin account; per-user sessions protect docume
   assert.equal((await post({ username: 'admin', password: 'incorrect' })).headers.get('set-cookie'), null);
   const login = await post({ username: 'ADMIN', password }); assert.equal(login.status, 200); const cookie = login.headers.get('set-cookie')!; assert.match(cookie, /HttpOnly/); assert.match(cookie, /SameSite=Strict/);
   const info = await login.json(); assert.equal(info.user.username, 'admin'); assert.equal(info.user.role, 'admin'); assert.ok(info.permissions.includes('users.manage'));
-  const headers = { Cookie: cookie.split(';')[0] }; assert.equal((await fetch(`${origin}/api/clients`, { headers })).status, 200);
+  const headers = { Cookie: cookie.split(';')[0], 'X-CSRF-Token':info.csrfToken }; assert.equal((await fetch(`${origin}/api/clients`, { headers })).status, 200);
   assert.equal((await fetch(`${origin}/api/logout`, { method: 'POST', headers })).status, 200); assert.equal((await fetch(`${origin}/api/clients`, { headers })).status, 401);
   assert.equal((await fetch(`${origin}/api/setup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'intruso', displayName: 'X', password: 'una-clave-muy-larga' }) })).status, 409);
 });
@@ -73,4 +73,3 @@ test('revenue goals are validated per currency, rounded, persisted and cleared w
   assert.deepEqual(await (await request('/api/goals')).json(), { USD: { monthly: 3000.46, yearly: 36000 } });
   assert.deepEqual(await (await request('/api/goals', 'PUT', { USD: { monthly: 0, yearly: 0 } })).json(), {});
 });
-

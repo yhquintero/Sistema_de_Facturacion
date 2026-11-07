@@ -1,8 +1,10 @@
 import type { ActivityScope, Invoice, InvoiceStatus } from '../../shared/types';
 
 export function money(value: number, currency = 'USD', withCode = false) {
-  const formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
-  return withCode ? `${formatted} ${currency}` : formatted;
+  const formatter = new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const formatted = formatter.format(value || 0);
+  const alreadyShowsCode = withCode && formatter.formatToParts(value || 0).some(part => part.type === 'currency' && part.value === currency.toUpperCase());
+  return withCode && !alreadyShowsCode ? `${formatted} ${currency.toUpperCase()}` : formatted;
 }
 export function number(value: number) { return new Intl.NumberFormat('es', { maximumFractionDigits: 1 }).format(value); }
 export function date(value: string, options?: Intl.DateTimeFormatOptions) {

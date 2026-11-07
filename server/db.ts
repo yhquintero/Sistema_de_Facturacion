@@ -24,12 +24,13 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
 }
 
+if (process.platform !== 'win32') { fs.chmodSync(DATA_DIR, 0o700); process.umask(0o077); }
 const DB_PATH = path.join(DATA_DIR, 'facturacion.sqlite');
 export const db = new DatabaseSync(DB_PATH);
 fs.chmodSync(DB_PATH, 0o600);
 
 db.exec('PRAGMA journal_mode = WAL;');
-db.exec('PRAGMA foreign_keys = ON;');
+db.exec('PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL; PRAGMA busy_timeout = 5000;');
 
 function initSchemaAndSeed() {
   db.exec(`
@@ -1013,6 +1014,7 @@ export function saveRevenueGoals(input: unknown): RevenueGoals {
 export function getSupplierProfile(): SupplierProfile { return camelRow(db.prepare('SELECT * FROM supplier_profile WHERE id=1').get()!) as unknown as SupplierProfile; }
 export function updateSupplierProfile(input: Partial<SupplierProfile>): SupplierProfile {
   const current = getSupplierProfile();
+  if (input.updatedAt && input.updatedAt !== current.updatedAt) throw new Error('El perfil del Suministrador cambió en otro dispositivo. Revisa los datos actuales antes de guardar.');
   const data = validate(supplierSchema, { ...current, ...input, primaryActivity: OFFICIAL_PRIMARY_ACTIVITY, secondaryActivity: OFFICIAL_SECONDARY_ACTIVITY });
   if (data.supplierSignatureDataUrl) assertValidSignature(data.supplierSignatureDataUrl);
   persist('supplier_profile', { ...snakeRow(data), id: 1, updated_at: new Date().toISOString() });
@@ -1103,7 +1105,9 @@ export function saveInvoice(input: Partial<Invoice> & { clientId: string }): Inv
   const existing = input.id ? getInvoiceById(input.id) : undefined;
   if (input.id && !existing) throw new Error('Factura no encontrada.');
   if (existing?.signatureStatus === 'firmada_cliente') throw new Error('El contenido firmado está protegido. Solo se permite actualizar el estado de cobro.');
+  if (existing && db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='fiscal_entries'").get() && db.prepare("SELECT 1 FROM fiscal_entries WHERE json_extract(payload_json,'$.invoiceId')=? LIMIT 1").get(existing.id)) throw new Error('Una factura con movimientos fiscales vinculados no se puede editar. Conserva el original y tramita la rectificación con tu asesor.');
   if (existing?.status === 'anulada') throw new Error('Una factura anulada no se puede editar.');
+  if (existing && existing.status !== 'borrador') throw new Error('Una factura emitida conserva su contenido. No se reescribe: tramita anulación o rectificación documentada con tu asesor.');
   if (input.clientSignatureDataUrl || input.clientSignedAt || input.signatureStatus === 'firmada_cliente') throw new Error('Registra la conformidad mediante el proceso de firma del Cliente Final.');
   if (existing && input.updatedAt && input.updatedAt !== existing.updatedAt) throw new Error('La factura cambió en el servidor. Vuelve a abrirla antes de editar.');
   const payload = validate(invoiceInputSchema, input) as Partial<Invoice> & { clientId: string };

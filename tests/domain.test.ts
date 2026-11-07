@@ -105,3 +105,5 @@ test('a full discount cannot bypass gross-amount bounds', () => {
   const source = base(); const item = { ...source.items[0], quantity: 1000000, unitPrice: 999999999, discountPercent: 100 };
   assert.throws(() => store.saveInvoice({ clientId: source.clientId, items: [item], status: 'borrador' }), /límite/);
 });
+
+test('issued content is immutable even before client signature; payment state remains changeable', () => { const invoice=store.saveInvoice(base()); assert.throws(()=>store.saveInvoice({...invoice,notes:'Rewrite after issuance'}),/emitida conserva/); assert.equal(store.updateInvoiceStatus(invoice.id,'pagada').status,'pagada'); });

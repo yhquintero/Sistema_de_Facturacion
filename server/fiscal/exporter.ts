@@ -1,0 +1,32 @@
+import ExcelJS from 'exceljs';
+import JSZip from 'jszip';
+import { createHash } from 'node:crypto';
+import { FISCAL_DISCLAIMER, FISCAL_ENTRY_LABELS, type FiscalReport } from '../../shared/fiscal';
+const columns = ['ID','Fecha efectiva (Cuba)','Tipo','Descripción','Importe original','Moneda','Tipo cambio CUP','Equivalente CUP','Signo','Comprobante / referencia','Soporte declarado','Código vector','Factura ID','Deducibilidad (operador)','Fundamento','Fuente tipo cambio','Fecha tipo cambio','Reversión de','SHA-256','Registrado UTC'];
+const rows = (report: FiscalReport) => report.entries.map(e => [e.id,e.occurredOn,FISCAL_ENTRY_LABELS[e.kind],e.description,e.originalAmount,e.currency,e.exchangeRate,e.cupAmount,e.sign,e.evidenceReference,e.documented ? 'Declarado disponible; comprobar original' : 'Pendiente',e.taxCode,e.invoiceId,e.deductibility,e.classificationBasis,e.exchangeRateSource,e.exchangeRateDate,e.reversesId,e.hash,e.createdAt]);
+export function safeCsvCell(value: unknown) { let text = String(value ?? ''); if (/^[\s\uFEFF]*[=+\-@]/u.test(text) || /^[\t\r\n]/.test(text)) text = "'" + text; return `"${text.replaceAll('"','""')}"`; }
+export function fiscalCsv(report: FiscalReport) { return Buffer.from('\uFEFF' + [[FISCAL_DISCLAIMER],columns,...rows(report)].map(row => row.map(safeCsvCell).join(';')).join('\r\n'),'utf8'); }
+export async function fiscalXlsx(report: FiscalReport) {
+  const workbook = new ExcelJS.Workbook(); workbook.creator = 'Nexo · Preparación fiscal Cuba'; workbook.created = new Date(report.generatedAt);
+  const add = (name: string, headings: string[], body: unknown[][]) => {
+    const sheet = workbook.addWorksheet(name, { views: [{ state: 'frozen', ySplit: 3 }], pageSetup: { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+    sheet.columns = headings.map((_,i) => ({ width: i === 0 ? 28 : 24 })); sheet.mergeCells(1,1,1,Math.max(headings.length,2)); sheet.getCell(1,1).value = `${report.isDemo ? 'DEMOSTRACIÓN · ' : ''}${FISCAL_DISCLAIMER}`; sheet.getRow(1).height = 58; sheet.getCell(1,1).font = { name: 'Calibri', size: 10, bold: true, color: { argb: '9D6B37' } }; sheet.getCell(1,1).alignment = { wrapText: true, vertical: 'middle' };
+    sheet.addRow([]); const header = sheet.addRow(headings); header.height = 34; header.eachCell(cell => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '2D6A57' } }; cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFF' } }; cell.alignment = { wrapText: true, vertical: 'middle' }; });
+    body.forEach(values => { const row = sheet.addRow(values); row.height = Math.min(400,Math.max(30,...values.map(value => Math.ceil(String(value ?? '').length / 30) * 13 + 10))); row.eachCell(cell => { cell.font = { name: 'Calibri', size: 10, color: { argb: '344B3E' } }; cell.alignment = { vertical: 'top', wrapText: true }; if (typeof cell.value === 'number') cell.numFmt = '#,##0.00;[Red]-#,##0.00'; }); });
+    sheet.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: headings.length } }; sheet.pageSetup.printArea = `A1:${sheet.getColumn(headings.length).letter}${sheet.rowCount}`; return sheet;
+  };
+  add('Resumen mensual CUP',['Mes','Ingresos cobrados','Gastos registrados','Tributos pagados','Seguridad social','Retenciones informativas'], report.monthly.map(m => [m.month,m.income,m.expense,m.tax_payment,m.social_security,m.withholding]));
+  add('Libro de movimientos',columns,rows(report));
+  add('Conciliación facturas',['Factura','Emisión','Moneda','Importe factura','Cobros acumulados (misma moneda)','Estado comercial','Observación'],report.invoiceReconciliation.map(i => [i.number,i.issueDate,i.currency,i.total,i.recordedCollectionsOriginalCurrency,i.status,i.warning]));
+  add('Preparación DJ-08 NO OFICIAL',['Concepto auxiliar','Valor','Advertencia / acción'],[
+    ['Ejercicio de los ingresos',report.year,'El año de presentación es distinto.'],['Figura tributaria',report.profile.regime,'Confirmar inscripción, actividad autorizada y vector fiscal.'],['Ingresos cobrados registrados (CUP)',report.totals.income,'No equivale a total de facturas emitidas; revisar otros ingresos personales.'],['Gastos registrados (CUP)',report.totals.expense,'No se consideran automáticamente deducibles.'],['Gastos clasificados deducibles por el operador',report.totals.operatorClassifiedDeductible,'Clasificación pendiente de validación fiscal y comprobantes.'],['Tributos pagados registrados',report.totals.tax_payment,'Separar pagos a cuenta, tributos deducibles y no deducibles según vector.'],['Seguridad social registrada',report.totals.social_security,'Contrastar documentos y tratamiento aplicable.'],['Retenciones soportadas registradas',report.totals.withholding,'Registro informativo: revisar certificados y no duplicar deducciones.'],['Base imponible y cuota final','NO CALCULADAS',report.officialSubmission.reason],['Presentación oficial','NO HABILITADA',report.officialSubmission.modelsUrl],['Firma de facturas','NO ES CERTIFICADO DIGITAL ONAT','No se envían formularios ni credenciales al portal tributario.']
+  ]);
+  add('Controles y procedencia',['Control','Resultado'],[['Generado UTC',report.generatedAt],['Cadena interna SHA-256',report.chain.matches ? 'Coincide; no es sello independiente' : 'NO COINCIDE'],['Entradas verificadas',report.chain.entriesChecked],['Sellado externo','No implementado. Un administrador con acceso a la BD puede recalcular la cadena.'],...report.warnings.map(w => ['Revisión requerida',w])]);
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}
+export async function fiscalPackage(report: FiscalReport) {
+  const zip = new JSZip(), files = { 'preparacion-fiscal.xlsx': await fiscalXlsx(report), 'movimientos.csv': fiscalCsv(report), 'expediente.json': Buffer.from(JSON.stringify(report,null,2)), 'LEER-ANTES-DE-USAR.txt': Buffer.from(FISCAL_DISCLAIMER + '\n\n' + report.officialSubmission.reason + '\n\n' + report.warnings.join('\n')) };
+  for (const [name,bytes] of Object.entries(files)) zip.file(name,bytes);
+  zip.file('manifest.json',JSON.stringify({ format: 'nexo-fiscal-aux-v1', incomeYear: report.year, officialSubmission: false, generatedAt: report.generatedAt, files: Object.fromEntries(Object.entries(files).map(([name,bytes]) => [name,{ bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') }])) },null,2));
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
