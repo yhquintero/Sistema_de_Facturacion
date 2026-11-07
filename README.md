@@ -24,7 +24,7 @@ pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action ExportService
 
 El modo se conserva tras inicializar. El panel solicita frase sin eco, guarda scrypt y clave independiente de backups en estado privado, valida procesos propios y HTTPS, no abre router ni instala CA silenciosamente. **Cada PC/teléfono debe confiar explícitamente en la CA local** tras verificar huella. Internet exige dominio/DNS/ACME y hospedaje permitido; no está publicado automáticamente. Ver [operación segura](docs/OPERACION-SEGURA.md) antes de usar datos reales.
 
-**Estado de validación:** Node/Linux y navegador ejercitados; scripts sin errores de gramática PowerShell según tree-sitter. CI Windows con parser real/ACL/Caddy quedó añadido, pero no se acredita su ejecución ni una instalación Windows/móvil real o un escaneo TLS público. Docker Compose es una plantilla aún sin ejecución local.
+**Estado de validación:** Node/Linux y navegador ejercitados; scripts sin errores de gramática PowerShell según tree-sitter. CI Linux y Windows con parser real/ACL/Caddy pasó con fixtures; ver [evidencia de CI](docs/VERIFICACION.md). Esto no acredita una instalación en tu Windows/móvil real ni un escaneo TLS público. Docker Compose es una plantilla aún sin ejecución local.
 
 ## Lo que incluye
 

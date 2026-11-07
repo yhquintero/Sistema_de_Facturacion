@@ -39,9 +39,19 @@ Los logs de trabajo están en `tmp/tests-delivery.log`, `tmp/build-delivery.log`
 - `tests/e2e/fiscal-security.spec.ts`: alta/reversión del libro, descarga XLSX, sincronización en otra ventana/contexto; interfaz fiscal/seguridad sin overflow móvil; dos sesiones protegidas con token CSRF y sin recarga. No demuestra aislamiento entre clientes: ambas sesiones pertenecen al mismo negocio.
 - `tests/e2e/workflows.spec.ts`: se conservan flujos completos Cliente→Contrato→Factura→anexo→firma→PDF/DOCX/XLSX, móvil táctil y PWA privada; ahora también aviso de privacidad antes del login y logout con CSRF.
 
-## Añadido, pero NO ejecutado/acreditado aquí
+## Ampliación de evidencia CI — 2026-11-06 (America/Havana)
 
-- CI `.github/workflows/ci.yml`: acciones fijadas a SHA, npm audit, pruebas/build/browser, SBOM CycloneDX; job Windows que descarga Caddy oficial fijado, contrasta SHA-512 oficial de la distribución y ejecuta parser PowerShell real, módulo, DACL privada, JSON atómico, comprobación PID, inicio con HTTPS local, backup, reinicio y parada. **No hay un run de esa nueva CI acreditado en esta entrega.**
+La [ejecución GitHub Actions del commit `74af521`](https://github.com/yhquintero/Sistema_de_Facturacion/actions/runs/42319313336) terminó con **`test: success` y `windows-control: success`**. Es evidencia externa al sandbox, con datos sintéticos:
+
+- Linux: instalación del lockfile, auditoría npm, typecheck, compilación, suite Node/API, SBOM CycloneDX y suite Playwright.
+- Windows: checksum oficial **SHA-512** de Caddy 2.11.9; parser PowerShell nativo, módulo, DACL privada, JSON atómico, rechazo de identidad PID incorrecta, selección de una única ruta Node según prioridad PATH, inicio Web/API/Caddy, probe HTTPS que verifica CA/nombre, backup cifrado, restart y stop.
+- Corregidos antes del merge: construir el frontend **antes** de la prueba de arranque productivo; usar el algoritmo SHA-512 establecido en `.goreleaser.yml` de Caddy; seleccionar solo el primer ejecutable cuando hay varias instalaciones en PATH. Se mantienen los fallos como exit codes no cero y anotaciones diagnósticas; no se desactivaron controles para pasar CI.
+
+No acredita Windows del usuario, instalación/confianza interactiva de CA, regla de firewall, dispositivos físicos, despliegue público, Docker ni aceptación ONAT. Las advertencias de Actions sobre runtime Node 20 migrado a Node 24 son no bloqueantes; actualizar los pins de acciones, con revisión, sigue siendo mantenimiento de cadena de suministro. Los gates de producción de abajo no desaparecen porque CI esté verde.
+
+## Límites de entorno y pruebas pendientes
+
+- CI `.github/workflows/ci.yml`: acciones fijadas a SHA, npm audit, pruebas/build/browser, SBOM CycloneDX; job Windows que descarga Caddy oficial fijado, contrasta SHA-512 oficial de la distribución y ejecuta parser PowerShell real, módulo, DACL privada, JSON atómico, comprobación PID, inicio con HTTPS local, backup, reinicio y parada. **La ampliación anterior acredita un run Linux/Windows con fixtures; no una instalación productiva ni la interacción en los equipos del usuario.**
 - `tests/powershell/Panel.Tests.ps1 -Integration`: listo para el runner/equipo Windows, no sustituto de probar la introducción interactiva de frase, política de ejecución, confianza CA y firewall en el Windows del usuario.
 - Caddy/PowerShell/Docker nativos no estaban instalados en el sandbox. Descargas de binarios por redirect de GitHub no estuvieron disponibles; no se ignoró TLS ni se usó un túnel para eludir restricciones. La gramática PS se comprobó separadamente mediante parser temporal de npm, sin afirmar ejecución Windows.
 - No hubo escaneo de puertos/SSL público, pentest externo, carga/DoS, escáner de imágenes Docker, revisión AV/EDR/BitLocker, Wi-Fi/router real, Android/iOS físicos, instalación nativa ni pinning.
