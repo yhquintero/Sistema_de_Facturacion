@@ -16,8 +16,10 @@
 El panel necesita el ejecutable de Caddy en `PATH`; `-InstallDependencies` instala únicamente los paquetes npm, no Caddy ni PowerShell. Si `caddy version` no se reconoce, instala Caddy explícitamente:
 
 ```powershell
-winget install --id CaddyServer.Caddy --exact
+winget install --id CaddyServer.Caddy --exact --source winget
 ```
+
+Se indica `--source winget` para consultar únicamente el repositorio comunitario de winget y evitar que un fallo de la fuente Microsoft Store (`msstore`, por ejemplo `0x8a15003b`) bloquee la instalación. No necesitas restablecer ni eliminar fuentes.
 
 Cierra la terminal y abre una nueva para recoger el `PATH` actualizado. Comprueba:
 

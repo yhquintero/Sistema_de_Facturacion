@@ -24,7 +24,7 @@ try {
             $env:PATH = $State
             $message = ''
             try { Get-CaddyPath | Out-Null } catch { $message = $_.Exception.Message }
-            if ($message -notmatch 'Caddy no está instalado o no está en PATH' -or $message -notmatch 'winget install' -or $message -notmatch 'caddy version') { throw 'Falta diagnóstico accionable para Caddy ausente.' }
+            if ($message -notmatch 'Caddy no está instalado o no está en PATH' -or $message -notmatch 'winget install --id CaddyServer\.Caddy --exact --source winget' -or $message -notmatch 'caddy version') { throw 'Falta diagnóstico accionable para Caddy ausente.' }
         } finally { $env:PATH = $originalPath }
         Set-PrivatePermissions $State
         $file = Join-Path $State 'atomic.json'
