@@ -74,6 +74,7 @@ export default function AnalyticsView() {
   return <div className="analytics-page">
     <PageHeader eyebrow={`Análisis · ${monthName}`} title="Análisis y metas" description="Cómo evoluciona tu facturación, qué tan rápido cobras y si vas camino de tus metas." actions={<><select className="small-select" aria-label="Moneda del análisis" value={currency} onChange={e => setCurrency(e.target.value)}>{currencies.map(c => <option key={c}>{c}</option>)}</select><button className="btn btn-secondary no-print" onClick={exportCsv}><Download size={14} />CSV</button><button className="btn btn-secondary no-print" onClick={() => window.print()}><Printer size={14} />Imprimir informe</button></>} />
     <div className="print-only print-header"><strong>{supplier.businessName}</strong><span>Informe de análisis y metas · {currency} · {new Date().toLocaleString('es')}</span></div>
+    <p className="section-note">Análisis comercial según fechas y estados de factura; «cobrado» no sustituye los ingresos percibidos documentados. Para preparación ONAT, contrasta el libro y la conciliación en Fiscal · Cuba / ONAT.</p>
     <div className="kpi-grid">
       <Kpi tone="green" label="Facturado este mes" value={money(kpis.thisMonth, currency)} trend={kpis.change} note={kpis.change === null ? 'sin datos del mes anterior' : ' vs. mes anterior'} />
       <Kpi tone="blue" label="Acumulado del año" value={money(kpis.yearToDate, currency)} note={`${kpis.invoicesThisYear} ${kpis.invoicesThisYear === 1 ? 'factura' : 'facturas'} en ${day.slice(0, 4)}`} />

@@ -1,4 +1,4 @@
-name: Calidad y flujos de facturación
+name: Calidad, seguridad y operación
 on:
   push:
   pull_request:
@@ -7,21 +7,102 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: 22
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.22.3
           cache: npm
       - run: npm ci
+      - run: npm audit --audit-level=high
       - run: npm run typecheck
-      - run: npm run test
+      # The real production-startup regression requires the compiled frontend.
       - run: npm run build
+      - name: Unit/API tests with failure diagnostics
+        run: |
+          set +e
+          npm test 2>&1 | tee unit-tests.log
+          test_status=${PIPESTATUS[0]}
+          set -e
+          if [ "$test_status" -ne 0 ]; then
+            node --input-type=module -e '
+              import fs from "node:fs";
+              const log = fs.readFileSync("unit-tests.log", "utf8");
+              const failures = log.match(/^not ok\b[\s\S]*?(?=^# Subtest:|^\d+\.\.\d+|$(?![\s\S]))/gm);
+              const message = (failures?.join("\n\n") || log.slice(-14000)).slice(0, 14000);
+              const escaped = message.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
+              console.log(`::error title=Unit/API test failures::${escaped}`);
+            '
+          fi
+          exit "$test_status"
+      - run: npm sbom --sbom-format=cyclonedx --omit=dev > sbom.cdx.json
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
-          name: navegador-diagnosticos
-          path: test-results/
+          name: diagnosticos-solo-datos-sinteticos
+          path: |
+            test-results/
+            unit-tests.log
           retention-days: 7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dependencias-sbom
+          path: sbom.cdx.json
+          retention-days: 30
+  windows-control:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.22.3
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Caddy oficial con checksum contrastado
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          try {
+            $version = '2.11.9'
+            $tools = Join-Path $env:RUNNER_TEMP 'nexo-caddy'
+            New-Item -ItemType Directory $tools -Force | Out-Null
+            $download = @(gh release download "v$version" --repo caddyserver/caddy --pattern "caddy_${version}_windows_amd64.zip" --pattern "caddy_${version}_checksums.txt" --dir $tools 2>&1)
+            $downloadCode = $LASTEXITCODE
+            $download | Write-Output
+            if ($downloadCode -ne 0) { throw ('No se pudo descargar la distribución oficial fijada: ' + ($download -join "`n")) }
+            $archive = Join-Path $tools "caddy_${version}_windows_amd64.zip"
+            $line = Get-Content (Join-Path $tools "caddy_${version}_checksums.txt") | Where-Object { $_ -match "\s+caddy_${version}_windows_amd64\.zip$" }
+            if (@($line).Count -ne 1) { throw 'Checksum oficial no encontrado de forma inequívoca.' }
+            $expected = ($line -split '\s+')[0]
+            # Caddy v2.11.9 .goreleaser.yml specifies SHA-512 for the release manifest.
+            if ($expected -notmatch '^[a-fA-F0-9]{128}$') { throw 'SHA-512 oficial de Caddy malformado.' }
+            if ((Get-FileHash $archive -Algorithm SHA512).Hash.ToLowerInvariant() -cne $expected.ToLowerInvariant()) { throw 'Checksum de Caddy no coincide.' }
+            Expand-Archive -LiteralPath $archive -DestinationPath $tools
+            $tools | Out-File $env:GITHUB_PATH -Append -Encoding utf8
+          } catch {
+            $message = (($_ | Out-String) + $_.ScriptStackTrace).Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
+            Write-Output "::error title=Caddy verification::$message"
+            throw
+          }
+      - name: Parser real PowerShell, ACL, inicio/HTTPS/backup/reinicio/parada con fixtures
+        run: |
+          try {
+            & (Join-Path $env:GITHUB_WORKSPACE 'tests/powershell/Panel.Tests.ps1') -Integration
+          } catch {
+            $message = (($_ | Out-String) + $_.ScriptStackTrace).Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
+            Write-Output "::error title=Windows integration::$message"
+            throw
+          }

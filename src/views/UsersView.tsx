@@ -37,7 +37,7 @@ export function RoleBadge({ role }: { role: UserRole }) { return <span className
 
 export default function UsersView() {
   const auth = useAuth();
-  if (!auth.can('users.manage')) return auth.setupAvailable ? <SetupAccess /> : <><PageHeader eyebrow="EQUIPO Y ACCESO" title="Usuarios y acceso" /><div className="panel"><EmptyState icon={LockKeyhole} title={auth.protected ? 'Solo para administradores' : 'Cuentas no disponibles en esta demostración'} description={auth.protected ? 'Pide a un administrador del espacio que gestione las cuentas y los roles del equipo.' : 'Este servidor funciona como demostración pública sin cuentas. Para activar usuarios, configura APP_PASSWORD y reinicia el servidor.'} /></div><RoleMatrix /></>;
+  if (!auth.can('users.manage')) return auth.setupAvailable ? <SetupAccess /> : <><PageHeader eyebrow="EQUIPO Y ACCESO" title="Usuarios y acceso" /><div className="panel"><EmptyState icon={LockKeyhole} title={auth.protected ? 'Solo para administradores' : 'Cuentas no disponibles en esta demostración'} description={auth.protected ? 'Pide a un administrador del espacio que gestione las cuentas y los roles del equipo.' : 'Este servidor funciona como demostración pública sin cuentas. Para activar usuarios, configura el hash inicial y reinicia el servidor.'} /></div><RoleMatrix /></>;
   return <ManageUsers />;
 }
 
@@ -113,7 +113,7 @@ function ManageUsers() {
         {confirmReset ? <div className="twofa-admin-confirm"><span>¿Confirmas que verificaste la identidad de {form.displayName}?</span><button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirmReset(false)} disabled={busy}>Cancelar</button><button type="button" className="btn btn-danger btn-sm" onClick={resetTwoFactor} disabled={busy}>Sí, restablecer</button></div>
           : <button type="button" className="btn btn-secondary btn-sm" onClick={() => setConfirmReset(true)}><Smartphone size={13} />Restablecer verificación en dos pasos</button>}</div></>}
       <h3 className="modal-section-title">{form.id ? 'Restablecer contraseña' : 'Acceso inicial'}</h3>{self ? <p className="field-hint">Cambia tu propia contraseña desde «Mi cuenta», que solicita la contraseña actual.</p> : <>
-        <div className="password-generator"><Field label={form.id ? 'Nueva contraseña temporal (opcional)' : 'Contraseña temporal'} required={!form.id} hint={`Mínimo ${PASSWORD_MIN_LENGTH} caracteres. Al asignarla se cierran sus sesiones abiertas.`}><input value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} minLength={form.password || !form.id ? PASSWORD_MIN_LENGTH : undefined} maxLength={256} required={!form.id} autoComplete="new-password" spellCheck={false} className="mono" /></Field><button type="button" className="btn btn-secondary btn-sm" onClick={() => setForm({ ...form, password: generatePassword() })}><Wand2 size={13} />Generar</button>{form.id && form.password && <button type="button" className="icon-btn" aria-label="No cambiar la contraseña" title="No cambiar la contraseña" onClick={() => setForm({ ...form, password: '' })}><X size={14} /></button>}</div>
+        <div className="password-generator"><Field label={form.id ? 'Nueva contraseña temporal (opcional)' : 'Contraseña temporal'} required={!form.id} hint={`Mínimo ${PASSWORD_MIN_LENGTH} caracteres. Al asignarla se cierran sus sesiones abiertas.`}><input value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} minLength={form.password || !form.id ? PASSWORD_MIN_LENGTH : undefined} maxLength={1024} required={!form.id} autoComplete="new-password" spellCheck={false} className="mono" /></Field><button type="button" className="btn btn-secondary btn-sm" onClick={() => setForm({ ...form, password: generatePassword() })}><Wand2 size={13} />Generar</button>{form.id && form.password && <button type="button" className="icon-btn" aria-label="No cambiar la contraseña" title="No cambiar la contraseña" onClick={() => setForm({ ...form, password: '' })}><X size={14} /></button>}</div>
         {(!form.id || form.password) && <label className="check-row"><input type="checkbox" checked={form.mustChangePassword} onChange={e => setForm({ ...form, mustChangePassword: e.target.checked })} /><span><strong>Exigir cambio en el primer acceso</strong>Recomendado: solo esa persona conocerá su contraseña definitiva.</span></label>}</>}
       <ErrorMessage error={formError} /><div className="modal-actions"><button type="button" className="btn btn-secondary" disabled={busy} onClick={() => setForm(null)}>Cancelar</button><SaveButton busy={busy} label={form.id ? 'Guardar cuenta' : 'Crear cuenta'} /></div></form></Modal>}
     {created && <CredentialsDialog {...created} onClose={() => setCreated(null)} />}
@@ -121,7 +121,7 @@ function ManageUsers() {
 }
 
 function describeEvent(event: SecurityEvent) {
-  const target = event.targetName ? `@${event.targetName}` : ''; const by = event.actorName ? ` · por ${event.actorName}` : ''; const ip = event.ip ? ` · ${event.ip}` : '';
+  const target = event.targetName ? `@${event.targetName}` : ''; const by = event.actorName ? ` · por ${event.actorName}` : ''; const ip = event.ip ? ` · peer ${event.ip}` : '';
   const d = event.details as Record<string, string | number | boolean>;
   if (event.type === 'login_failed') return `${target || 'Usuario vacío'} · ${failureReasons[String(d.reason)] || 'rechazado'}${ip}`;
   if (event.type === 'role_changed') return `${target}: ${ROLE_INFO[d.previous as UserRole]?.label || d.previous} → ${ROLE_INFO[d.role as UserRole]?.label || d.role}${by}`;
@@ -134,7 +134,7 @@ function describeEvent(event: SecurityEvent) {
   if (event.type === 'recovery_code_used') return `${target} · quedan ${d.remaining} códigos${ip}`;
   if (event.type === 'session_expired') return `${target} · ${d.reason === 'idle' ? 'por inactividad' : 'duración máxima alcanzada'}`;
   if (event.type === 'own_sessions_revoked') return `${target} · ${d.count} ${Number(d.count) === 1 ? 'sesión' : 'sesiones'}${ip}`;
-  if (event.type === 'backup_created') return `${event.targetName} · ${d.encrypted ? 'cifrada' : 'sin cifrar'}${by}`;
+  if (event.type === 'backup_created') return `${event.targetName} · cifrada${by}`;
   if (event.type === 'backup_downloaded') return `${event.targetName}${by}${ip}`;
   return `${target}${by}`;
 }

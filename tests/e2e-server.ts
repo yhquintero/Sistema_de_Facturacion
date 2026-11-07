@@ -9,4 +9,16 @@ process.env.PORT = protectedMode ? '3101' : '3100';
 process.env.APP_PASSWORD = protectedMode ? 'clave-publica-solo-para-e2e' : '';
 process.env.NODE_ENV = protectedMode ? 'production' : 'development';
 process.env.SEED_DEMO = 'true';
+process.env.ALLOW_PUBLIC_DEMO = 'true';
+process.env.APP_PASSWORD_HASH_FILE = '';
+process.env.APP_PASSWORD_FILE = '';
+process.env.PUBLIC_ORIGIN = '';
+process.env.ALLOWED_ORIGINS = '';
+process.env.TRUST_PROXY = '';
+process.env.TLS_MODE = 'off';
+process.env.HOST = '127.0.0.1';
+process.env.ALLOW_INSECURE_LOCALHOST = 'true';
+// Copias cifradas en el modo protegido: clave desechable fuera del directorio de copias, sin copia automática.
+process.env.BACKUP_AUTO = 'false'; process.env.BACKUP_DIR = '';
+if (protectedMode) { const key = path.resolve('tmp/e2e-auth-keys/backup.key'); fs.rmSync(path.dirname(key), { recursive: true, force: true }); const { generateBackupKey } = await import('../server/security/backups'); generateBackupKey(key); process.env.BACKUP_KEY_FILE = key; } else process.env.BACKUP_KEY_FILE = '';
 await import('../server/index');

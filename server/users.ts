@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID, scrypt as scryptCallback, scryptSy
 import { z } from 'zod';
 import { db } from './db';
 import { validate } from './validation';
+import { hashPassword as newHash, verifyPassword as verifyNewHash } from './security/password';
 import { consumeRecoveryCode, generateRecoveryCodes, generateTotpSecret, otpauthUri, verifyTotp } from './totp';
 import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, USER_ROLES, USERNAME_PATTERN, type OwnSession, type SecurityEvent, type SessionUser, type UserRole, type WorkspaceUser } from '../shared/permissions';
 
@@ -63,7 +64,11 @@ addColumn('users', 'totp_pending', "TEXT NOT NULL DEFAULT ''");
 addColumn('users', 'totp_enabled', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('users', 'totp_last_step', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('users', 'recovery_codes', "TEXT NOT NULL DEFAULT '[]'");
-addColumn('user_sessions', 'last_seen_at', 'INTEGER NOT NULL DEFAULT 0');
+
+const sessionColumns = db.prepare('PRAGMA table_info(user_sessions)').all() as { name: string }[];
+for (const [name, definition] of [['last_used_at', 'INTEGER NOT NULL DEFAULT 0'], ['csrf_token', "TEXT NOT NULL DEFAULT ''"]]) {
+  if (!sessionColumns.some(column => column.name === name)) db.exec(`ALTER TABLE user_sessions ADD COLUMN ${name} ${definition}`);
+}
 
 /* ------------------------------------------------------------------ política de sesiones */
 const envNumber = (name: string, fallback: number, min: number, max: number) => {
@@ -71,12 +76,14 @@ const envNumber = (name: string, fallback: number, min: number, max: number) => 
 };
 /** Cierre por inactividad (SESSION_IDLE_MINUTES, 30 por defecto; 0 lo desactiva). */
 export const sessionIdleMs = () => envNumber('SESSION_IDLE_MINUTES', 30, 0, 24 * 60) * 60_000;
-/** Duración máxima absoluta de una sesión (SESSION_MAX_HOURS, 12 por defecto). */
-export const sessionMaxMs = () => envNumber('SESSION_MAX_HOURS', 12, 1, 24 * 30) * 60 * 60_000;
+/** Duración máxima absoluta de una sesión (SESSION_MAX_HOURS, 8 por defecto). */
+export const sessionMaxMs = () => envNumber('SESSION_MAX_HOURS', 8, 1, 24 * 30) * 60 * 60_000;
 /** Bloqueo por intentos fallidos: LOGIN_MAX_ATTEMPTS (5) en LOGIN_LOCK_MINUTES (5). */
 export const loginMaxAttempts = () => envNumber('LOGIN_MAX_ATTEMPTS', 5, 1, 100);
 export const loginLockMs = () => envNumber('LOGIN_LOCK_MINUTES', 5, 1, 24 * 60) * 60_000;
 const SEEN_RESOLUTION_MS = 30_000;
+/** Compatibilidad: duración máxima por defecto. */
+export const SESSION_TTL_MS = 8 * 60 * 60_000;
 const MAX_SESSIONS_PER_USER = 20;
 const SCRYPT = { N: 16384, r: 8, p: 1, keyLength: 64 } as const;
 
@@ -84,22 +91,18 @@ function scrypt(password: string, salt: Buffer, keyLength: number, options: Scry
   return new Promise<Buffer>((resolve, reject) => scryptCallback(password, salt, keyLength, options, (error, key) => error ? reject(error) : resolve(key)));
 }
 const SCRYPT_OPTIONS = { N: SCRYPT.N, r: SCRYPT.r, p: SCRYPT.p, maxmem: 64 * 1024 * 1024 };
-const formatHash = (salt: Buffer, key: Buffer) => `scrypt$${SCRYPT.N}$${SCRYPT.r}$${SCRYPT.p}$${salt.toString('base64')}$${key.toString('base64')}`;
-export async function hashPassword(password: string): Promise<string> {
-  const salt = randomBytes(16);
-  return formatHash(salt, await scrypt(password.normalize('NFKC'), salt, SCRYPT.keyLength, SCRYPT_OPTIONS));
-}
-/** Solo para el arranque (una vez); el resto de operaciones usa la versión asíncrona. */
-function hashPasswordSync(password: string): string {
-  const salt = randomBytes(16);
-  return formatHash(salt, scryptSync(password.normalize('NFKC'), salt, SCRYPT.keyLength, SCRYPT_OPTIONS));
-}
+export async function hashPassword(password: string): Promise<string> { return newHash(password); }
+/** Existing PR #2 scrypt credentials are verified without rewriting or losing accounts. */
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  const [scheme, n, r, p, salt, hash] = stored.split('$');
-  if (scheme !== 'scrypt' || !salt || !hash) return false;
-  const expected = Buffer.from(hash, 'base64');
-  const key = await scrypt(password.normalize('NFKC'), Buffer.from(salt, 'base64'), expected.length, { N: Number(n), r: Number(r), p: Number(p), maxmem: 64 * 1024 * 1024 });
-  return key.length === expected.length && timingSafeEqual(key, expected);
+  try {
+    if (stored.startsWith('scrypt$32768$8$1$')) return await verifyNewHash(password, stored);
+    const [scheme,n,r,p,salt,hash,...extra] = stored.split('$');
+    if (scheme !== 'scrypt' || n !== '16384' || r !== '8' || p !== '1' || extra.length || !salt || !hash || !/^[A-Za-z0-9+/=]+$/.test(salt+hash)) return false;
+    const expected = Buffer.from(hash,'base64'), decodedSalt = Buffer.from(salt,'base64');
+    if (expected.length !== 64 || decodedSalt.length !== 16) return false;
+    const key = await scrypt(password.normalize('NFKC'), decodedSalt, 64, SCRYPT_OPTIONS);
+    return timingSafeEqual(key, expected);
+  } catch { return false; }
 }
 /** Hash señuelo para igualar el tiempo de respuesta cuando el usuario no existe. */
 let decoyHash: Promise<string> | undefined;
@@ -235,43 +238,51 @@ export async function resetPasswordFromConsole(name: string, newPassword: string
 }
 
 const tokenDigest = (token: string) => createHash('sha256').update(token).digest('hex');
-export function createSession(userId: string, meta: { ip?: string; userAgent?: string } = {}): { token: string; tokenHash: string } {
+export function createSession(userId: string, meta: { ip?: string; userAgent?: string } = {}): { token: string; tokenHash: string; csrfToken: string } {
   const now = Date.now();
-  db.prepare('DELETE FROM user_sessions WHERE expires_at <= ?').run(now);
-  db.prepare('DELETE FROM user_sessions WHERE user_id=? AND token_hash IN (SELECT token_hash FROM user_sessions WHERE user_id=? ORDER BY expires_at DESC LIMIT -1 OFFSET ?)').run(userId, userId, MAX_SESSIONS_PER_USER - 1);
-  const token = randomBytes(32).toString('hex'); const tokenHash = tokenDigest(token);
-  db.prepare('INSERT INTO user_sessions (token_hash,user_id,created_at,expires_at,ip,user_agent,last_seen_at) VALUES (?,?,?,?,?,?,?)').run(tokenHash, userId, new Date(now).toISOString(), now + sessionMaxMs(), (meta.ip || '').slice(0, 64), (meta.userAgent || '').slice(0, 300), now);
-  db.prepare('UPDATE users SET last_login_at=? WHERE id=?').run(new Date(now).toISOString(), userId);
-  return { token, tokenHash };
+  const idle = sessionIdleMs();
+  db.prepare("DELETE FROM user_sessions WHERE expires_at <= ? OR (? > 0 AND last_used_at <= ?) OR csrf_token=''").run(now, idle, now - idle);
+  db.prepare('DELETE FROM user_sessions WHERE user_id=? AND token_hash IN (SELECT token_hash FROM user_sessions WHERE user_id=? ORDER BY expires_at DESC LIMIT -1 OFFSET ?)').run(userId,userId,MAX_SESSIONS_PER_USER-1);
+  if (Number((db.prepare('SELECT COUNT(*) AS total FROM user_sessions').get() as {total:number}).total) >= 256) throw Object.assign(new Error('Límite de sesiones alcanzado. Cierra una sesión o espera su caducidad.'),{status:503});
+  const token=randomBytes(32).toString('hex'),tokenHash=tokenDigest(token),csrfToken=randomBytes(32).toString('base64url');
+  db.prepare('INSERT INTO user_sessions (token_hash,user_id,created_at,expires_at,ip,user_agent,last_used_at,csrf_token) VALUES (?,?,?,?,?,?,?,?)').run(tokenHash,userId,new Date(now).toISOString(),now+sessionMaxMs(),(meta.ip||'').slice(0,64),(meta.userAgent||'').slice(0,300),now,csrfToken);
+  db.prepare('UPDATE users SET last_login_at=? WHERE id=?').run(new Date(now).toISOString(),userId);
+  return {token,tokenHash,csrfToken};
 }
-export type SessionResolution = { user: WorkspaceUser; tokenHash: string; lastSeenAt: number } | { expired: 'idle' | 'max'; user: WorkspaceUser } | null;
+export type ActiveSession = { user: WorkspaceUser; tokenHash: string; csrfToken: string; lastUsedAt: number };
+export type SessionResolution = ActiveSession | { expired: 'idle' | 'max'; user: WorkspaceUser } | null;
 /**
- * Valida la cookie. Además de la caducidad absoluta, cierra la sesión si lleva más de
- * SESSION_IDLE_MINUTES sin actividad. `touch=false` consulta sin contar como actividad.
+ * Valida la cookie e informa del motivo si acaba de caducar. Además de la duración máxima
+ * (SESSION_MAX_HOURS), cierra la sesión tras SESSION_IDLE_MINUTES sin actividad.
+ * `touch=false` consulta sin contar como actividad (p. ej. el sondeo del aviso de inactividad).
  */
-export function resolveSession(token: string, options: { touch?: boolean; now?: number } = {}): SessionResolution {
+export function inspectSession(token: string, options: { touch?: boolean; now?: number } = {}): SessionResolution {
   if (!token || token.length > 200) return null;
-  const now = options.now ?? Date.now(); const tokenHash = tokenDigest(token);
-  const row = db.prepare('SELECT user_id, expires_at, last_seen_at, created_at FROM user_sessions WHERE token_hash=?').get(tokenHash) as { user_id: string; expires_at: number; last_seen_at: number; created_at: string } | undefined;
+  const tokenHash = tokenDigest(token), now = options.now ?? Date.now();
+  const row = db.prepare('SELECT user_id,expires_at,last_used_at,created_at,csrf_token FROM user_sessions WHERE token_hash=?').get(tokenHash) as { user_id: string; expires_at: number; last_used_at: number; created_at: string; csrf_token: string } | undefined;
   if (!row) return null;
   const user = getUser(row.user_id);
-  if (!user || !user.active) { db.prepare('DELETE FROM user_sessions WHERE token_hash=?').run(tokenHash); return null; }
-  const idle = sessionIdleMs(); const lastSeen = row.last_seen_at || Date.parse(row.created_at) || now;
-  if (row.expires_at <= now || (idle > 0 && now - lastSeen > idle)) {
+  if (!user?.active || !row.csrf_token) { db.prepare('DELETE FROM user_sessions WHERE token_hash=?').run(tokenHash); return null; }
+  const idle = sessionIdleMs(), lastUsed = row.last_used_at || Date.parse(row.created_at) || now;
+  if (row.expires_at <= now || (idle > 0 && now - lastUsed >= idle)) {
     db.prepare('DELETE FROM user_sessions WHERE token_hash=?').run(tokenHash);
     const reason = row.expires_at <= now ? 'max' : 'idle';
     recordSecurityEvent('session_expired', { id: user.id, name: user.displayName }, { id: user.id, name: user.username }, { reason });
     return { expired: reason, user };
   }
-  if (options.touch !== false && now - lastSeen >= SEEN_RESOLUTION_MS) { db.prepare('UPDATE user_sessions SET last_seen_at=? WHERE token_hash=?').run(now, tokenHash); return { user, tokenHash, lastSeenAt: now }; }
-  return { user, tokenHash, lastSeenAt: lastSeen };
+  if (options.touch !== false && now - lastUsed >= SEEN_RESOLUTION_MS) { db.prepare('UPDATE user_sessions SET last_used_at=? WHERE token_hash=?').run(now, tokenHash); return { user, tokenHash, csrfToken: row.csrf_token, lastUsedAt: now }; }
+  return { user, tokenHash, csrfToken: row.csrf_token, lastUsedAt: lastUsed };
+}
+export function resolveSession(token: string, touch = true): ActiveSession | null {
+  const result = inspectSession(token, { touch });
+  return result && 'tokenHash' in result ? result : null;
 }
 const publicSessionId = (tokenHash: string) => tokenHash.slice(0, 16);
 export function listOwnSessions(userId: string, currentTokenHash: string): OwnSession[] {
   const now = Date.now(); const idle = sessionIdleMs();
-  return (db.prepare('SELECT * FROM user_sessions WHERE user_id=? AND expires_at > ? ORDER BY last_seen_at DESC, created_at DESC').all(userId, now) as { token_hash: string; created_at: string; expires_at: number; last_seen_at: number; ip: string; user_agent: string }[])
-    .filter(row => !idle || now - (row.last_seen_at || Date.parse(row.created_at)) <= idle)
-    .map(row => ({ id: publicSessionId(row.token_hash), current: row.token_hash === currentTokenHash, createdAt: row.created_at, lastSeenAt: new Date(row.last_seen_at || Date.parse(row.created_at)).toISOString(), expiresAt: new Date(row.expires_at).toISOString(), ip: row.ip, userAgent: row.user_agent }));
+  return (db.prepare('SELECT * FROM user_sessions WHERE user_id=? AND expires_at > ? ORDER BY last_used_at DESC, created_at DESC').all(userId, now) as { token_hash: string; created_at: string; expires_at: number; last_used_at: number; ip: string; user_agent: string }[])
+    .filter(row => !idle || now - (row.last_used_at || Date.parse(row.created_at)) <= idle)
+    .map(row => ({ id: publicSessionId(row.token_hash), current: row.token_hash === currentTokenHash, createdAt: row.created_at, lastSeenAt: new Date(row.last_used_at || Date.parse(row.created_at)).toISOString(), expiresAt: new Date(row.expires_at).toISOString(), ip: row.ip, userAgent: row.user_agent }));
 }
 /** Cierra una sesión propia por id público, o todas salvo la actual con id «others». */
 export function revokeOwnSessions(userId: string, sessionId: string, currentTokenHash: string, actor: ActorRef): number {
@@ -373,8 +384,17 @@ export function revokeUserSessions(userId: string, actor: ActorRef): number {
  */
 export function bootstrapAdminFromPassword(sharedPassword: string, name = 'admin'): WorkspaceUser | null {
   if (!sharedPassword || hasUsers()) return null;
-  const data = validate(createUserSchema, { username: name, displayName: 'Administrador', role: 'admin', password: sharedPassword, mustChangePassword: false });
-  const user = insertUser(data, hashPasswordSync(data.password), { id: '', name: 'Arranque del servidor' });
-  recordSecurityEvent('bootstrap_admin', { id: '', name: 'Arranque del servidor' }, { id: user.id, name: user.username }, { source: 'APP_PASSWORD' });
+  const data=validate(createUserSchema,{username:name,displayName:'Administrador',role:'admin',password:sharedPassword,mustChangePassword:false});
+  return bootstrapAdminFromHash(hashPasswordLegacyBootstrap(data.password),data.username);
+}
+function hashPasswordLegacyBootstrap(value: string) {
+  const salt=randomBytes(16);
+  return `scrypt$32768$8$1$${salt.toString('base64url')}$${scryptSync(value,salt,32,{N:32768,r:8,p:1,maxmem:64*1024*1024}).toString('base64url')}`;
+}
+export function bootstrapAdminFromHash(encoded: string, name = 'admin'): WorkspaceUser | null {
+  if (!encoded || hasUsers()) return null;
+  const login=validate(username,name);
+  const user=insertUser({username:login,displayName:'Administrador',role:'admin',password:'',mustChangePassword:false},encoded,{id:'',name:'Arranque del servidor'});
+  recordSecurityEvent('bootstrap_admin',{id:'',name:'Arranque del servidor'},{id:user.id,name:user.username},{source:'configured-initial-credential'});
   return user;
 }

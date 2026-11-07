@@ -1,36 +1,65 @@
 import http from 'node:http';
+import https from 'node:https';
 import path from 'node:path';
 import fs from 'node:fs';
 import express from 'express';
-import { createApp } from './app';
-import { db } from './db';
-import { hasUsers, recordSecurityEvent } from './users';
-import { scheduleDailyBackups } from './backups';
+import { readConfig, validateRuntime, loadTlsOptions } from './config';
+import { loadCredential } from './security/password';
+import { securityLog } from './security/log';
 
 async function bootstrap() {
-  const isProd = process.env.NODE_ENV === 'production' || process.argv.includes('--production');
-  if (isProd) process.env.NODE_ENV = 'production';
-  if (isProd && !process.env.APP_PASSWORD && !hasUsers() && process.env.ALLOW_PUBLIC_DEMO !== 'true') throw new Error('Configura APP_PASSWORD (mínimo 12 caracteres) para crear el primer administrador antes de iniciar producción. Usa ALLOW_PUBLIC_DEMO=true únicamente para una demostración pública sin datos reales.');
-  const scheduledBackups = isProd && process.env.BACKUP_AUTO !== 'false';
-  if (process.env.BACKUP_KEY && process.env.BACKUP_KEY.length < 16) throw new Error('BACKUP_KEY debe tener al menos 16 caracteres.');
-  const app = createApp({ securityHeaders: isProd, scheduledBackups }); const httpServer = http.createServer(app);
-  const stopBackups = scheduledBackups ? scheduleDailyBackups(db, info => recordSecurityEvent('backup_created', { id: '', name: 'Copia automática' }, { name: info.name }, { encrypted: info.encrypted, size: info.size, removed: info.removed.length, automatic: true })) : undefined;
-  if (scheduledBackups && !process.env.BACKUP_KEY) console.warn('[Nexo] Aviso: BACKUP_KEY no está configurada. Las copias automáticas se guardarán SIN cifrar.');
+  const config = readConfig(); if (config.production) process.env.NODE_ENV = 'production';
+  const credential = loadCredential(config);
+  // TLS/privacy validation runs before any database is opened, including discovery.
+  validateRuntime(config, true);
+  let accountsExist = false;
+  const existingPath = path.resolve(process.env.DATA_DIR || 'data', 'facturacion.sqlite');
+  if (fs.existsSync(existingPath)) {
+    const { DatabaseSync } = await import('node:sqlite');
+    const existing = new DatabaseSync(existingPath, { readOnly: true });
+    try { if (existing.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'").get()) accountsExist = !!existing.prepare('SELECT 1 FROM users LIMIT 1').get(); } finally { existing.close(); }
+  }
+  validateRuntime(config, credential.enabled || accountsExist);
+  // Validate deployment before opening or initializing the database.
+  const { createApp } = await import('./app'); const { db, getWorkspaceInfo } = await import('./db');
+  const { closeRealtime } = await import('./realtime');
+  if (config.allowPublicDemo && !getWorkspaceInfo().demo) throw new Error('ALLOW_PUBLIC_DEMO solo admite una base marcada como demostración; no habilita datos reales.');
+  if (!credential.enabled && !accountsExist && !getWorkspaceInfo().demo) throw new Error('No se permite acceso sin autenticación a un espacio no demostrativo.');
+  const { hasUsers } = await import('./users');
+  // A server restart/recovery invalidates all saved sessions, as before hardening.
+  db.prepare('DELETE FROM user_sessions').run();
+  const { scheduleDailyBackups } = await import('./backups'); const { recordSecurityEvent } = await import('./users');
+  // Copias diarias cifradas en producción (BACKUP_AUTO=false las desactiva). Sin clave no se crean copias legibles.
+  const scheduledBackups = config.production && process.env.BACKUP_AUTO !== 'false' && !!config.backupKeyFile;
+  if (config.production && process.env.BACKUP_AUTO !== 'false' && !config.backupKeyFile) console.warn('[Nexo] Aviso: sin BACKUP_KEY_FILE no hay copias automáticas. Genera la clave con npm run backup:key -- <archivo>.');
+  const app = createApp({ config, scheduledBackups });
+  const stopBackups = scheduledBackups ? scheduleDailyBackups(info => recordSecurityEvent('backup_created', { id: '', name: 'Copia automática' }, { name: info.name }, { encrypted: true, size: info.size, removed: info.removed.length })) : () => {};
+  const server = config.tlsMode === 'direct' ? https.createServer(loadTlsOptions(config), app) : http.createServer(app);
+  server.headersTimeout = 15_000; server.requestTimeout = 30_000; server.keepAliveTimeout = 5_000; server.maxConnections = 300;
   let closeVite: (() => Promise<void>) | undefined;
-  if (!isProd) {
+  if (!config.production) {
     const { createServer } = await import('vite');
-    const vite = await createServer({ server: { middlewareMode: true, allowedHosts: true, hmr: { server: httpServer } }, appType: 'spa' });
+    const vite = await createServer({ server: { middlewareMode: true, allowedHosts: true, hmr: { server } }, appType: 'spa' });
     app.use(vite.middlewares); closeVite = () => vite.close();
   } else {
-    const distPath = path.resolve(process.cwd(), 'dist');
+    const distPath = path.resolve('dist');
     if (!fs.existsSync(path.join(distPath, 'index.html'))) throw new Error('No existe el frontend compilado. Ejecuta npm run build.');
-    app.use('/assets', express.static(path.join(distPath, 'assets'), { immutable: true, maxAge: '1y' }));
-    app.use(express.static(distPath, { maxAge: 0 }));
-    app.get('*', (_req, res) => res.sendFile(path.join(distPath, 'index.html')));
+    app.use('/assets', express.static(path.join(distPath, 'assets'), { immutable: true, maxAge: '1y', dotfiles: 'deny' }));
+    app.use(express.static(distPath, { maxAge: 0, dotfiles: 'deny' }));
+    app.get('/{*path}', (_req, res) => { res.setHeader('Cache-Control', 'no-store'); res.sendFile(path.join(distPath, 'index.html')); });
   }
-  const port = Number(process.env.PORT || 3000);
-  httpServer.listen(port, '0.0.0.0', () => console.log(`[Nexo Facturación] Web + API + Móvil disponibles en http://0.0.0.0:${port}${hasUsers() ? ' · Acceso con cuentas de usuario' : ' · Modo abierto sin cuentas'}`));
-  const shutdown = () => { stopBackups?.(); httpServer.close(() => { db.close(); process.exit(0); }); void closeVite?.(); httpServer.closeIdleConnections(); };
+  await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(config.port, config.host, () => { server.removeListener('error', reject); resolve(); }); });
+  console.log(`[Nexo] Web + API + tiempo real: ${config.publicOrigin || `http://${config.host}:${config.port}`} · ${hasUsers() ? 'Espacio protegido' : 'Solo demostración'} · TLS ${config.tlsMode}`);
+  securityLog('server_started', { reason: `tls:${config.tlsMode};auth:${hasUsers() ? 'personal-accounts' : 'demo'}` });
+  const redirectPort = config.redirectPort;
+  let redirect: http.Server | undefined;
+  if (redirectPort) {
+    redirect = http.createServer((req, res) => { if (!['GET','HEAD'].includes(req.method || '')) { res.writeHead(426, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }); res.end('Utiliza HTTPS; no se admiten credenciales por HTTP.'); return; } res.writeHead(308, { Location: config.publicOrigin + (req.url?.startsWith('/') ? req.url : '/'), 'Cache-Control': 'no-store' }); res.end(); });
+    await new Promise<void>((resolve, reject) => { redirect!.once('error', reject); redirect!.listen(redirectPort, config.host, resolve); });
+  }
+  let closing = false;
+  const shutdown = () => { if (closing) return; closing = true; if (config.shutdownFile) { fs.unwatchFile(config.shutdownFile); try { fs.rmSync(config.shutdownFile, { force: true }); } catch { /* shutdown must still complete */ } } stopBackups(); closeRealtime(); redirect?.close(); void closeVite?.(); const watchdog = setTimeout(() => { server.closeAllConnections(); process.exit(1); }, 10_000); watchdog.unref(); server.close(() => { clearTimeout(watchdog); db.close(); process.exit(0); }); server.closeIdleConnections(); };
+  if (config.shutdownFile) fs.watchFile(config.shutdownFile, { interval: 500, persistent: false }, () => { try { const stat = fs.lstatSync(config.shutdownFile); if (stat.isFile() && !stat.isSymbolicLink() && stat.size <= 64 && fs.readFileSync(config.shutdownFile, 'utf8').trim() === 'shutdown') shutdown(); } catch { /* no signal or not readable */ } });
   process.once('SIGTERM', shutdown); process.once('SIGINT', shutdown);
 }
 bootstrap().catch(error => { console.error('No se pudo iniciar el servidor:', (error as Error).message); process.exit(1); });

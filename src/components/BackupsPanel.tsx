@@ -17,19 +17,19 @@ export default function BackupsPanel({ onChanged }: { onChanged?: () => void }) 
   useEffect(() => { void load(); }, [load]);
   const create = async () => {
     setBusy(true); setError('');
-    try { const next = await api.createBackup(); setStatus(next); notify(next.backups[0]?.encrypted ? 'Copia cifrada creada.' : 'Copia creada (sin cifrar: configura BACKUP_KEY).'); onChanged?.(); }
+    try { const next = await api.createBackup(); setStatus(next); notify('Copia cifrada creada.'); onChanged?.(); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
   const last = status?.backups[0];
   const health = !last ? 'none' : ageHours(last.createdAt) > 36 ? 'stale' : 'ok';
   return <section className="panel backups-panel" aria-labelledby="backups-title">
-    <div className="panel-header"><div><h2 id="backups-title">Copias de seguridad</h2><p>Copia completa de la base, sin sesiones abiertas. {status ? `Se conservan las ${status.keep} más recientes.` : ''}</p></div>
-      <div className="page-actions"><button className="icon-btn" aria-label="Actualizar copias" title="Actualizar" onClick={() => void load()}><RefreshCw size={14} /></button><button className="btn btn-primary btn-sm" onClick={create} disabled={busy || !status}>{busy ? <LoaderCircle size={14} className="spin" /> : <Plus size={14} />}Crear copia ahora</button></div></div>
+    <div className="panel-header"><div><h2 id="backups-title">Copias de seguridad</h2><p>Copia completa y cifrada de la base, sin sesiones abiertas. {status ? status.keep > 0 ? `Se conservan las ${status.keep} más recientes en el servidor.` : 'Sin rotación automática: la retención la gestiona el operador.' : ''}</p></div>
+      <div className="page-actions"><button className="icon-btn" aria-label="Actualizar copias" title="Actualizar" onClick={() => void load()}><RefreshCw size={14} /></button><button className="btn btn-primary btn-sm" onClick={create} disabled={busy || !status || !status.encrypted} title={status && !status.encrypted ? 'Configura BACKUP_KEY_FILE en el servidor' : undefined}>{busy ? <LoaderCircle size={14} className="spin" /> : <Plus size={14} />}Crear copia ahora</button></div></div>
     <ErrorMessage error={error} />
     {!status ? !error && <div className="audit-loading"><LoaderCircle className="spin" size={18} />Cargando copias…</div> : <>
       <div className="backup-facts">
         <div className={`backup-fact ${health}`}><DatabaseBackup size={16} /><div><strong>{last ? dateTime(last.createdAt) : 'Ninguna todavía'}</strong><span>{health === 'stale' ? 'Última copia hace más de 36 h' : 'Última copia'}</span></div></div>
-        <div className={`backup-fact ${status.encrypted ? 'ok' : 'warn'}`}>{status.encrypted ? <Lock size={16} /> : <LockOpen size={16} />}<div><strong>{status.encrypted ? 'Cifradas (AES-256-GCM)' : 'Sin cifrar'}</strong><span>{status.encrypted ? 'Ilegibles sin BACKUP_KEY' : 'Configura BACKUP_KEY en el servidor'}</span></div></div>
+        <div className={`backup-fact ${status.encrypted ? 'ok' : 'warn'}`}>{status.encrypted ? <Lock size={16} /> : <LockOpen size={16} />}<div><strong>{status.encrypted ? 'Cifradas (AES-256-GCM)' : 'Falta la clave de cifrado'}</strong><span>{status.encrypted ? 'Ilegibles sin la clave BACKUP_KEY_FILE' : 'Genera BACKUP_KEY_FILE: npm run backup:key -- <archivo>'}</span></div></div>
         <div className={`backup-fact ${status.enabled ? 'ok' : ''}`}><RefreshCw size={16} /><div><strong>{status.enabled ? `Diaria desde las ${String(status.hour).padStart(2, '0')}:00` : 'Solo manual'}</strong><span>{status.enabled ? 'Copia automática' : 'Automática solo en producción'}</span></div></div>
       </div>
       {status.backups.length ? <div className="invoice-table-wrap"><table className="invoice-table backups-table"><thead><tr><th>Archivo</th><th>Fecha</th><th className="hide-mobile">Tamaño</th><th className="hide-mobile">Protección</th><th aria-label="Descargar" /></tr></thead><tbody>
@@ -37,7 +37,7 @@ export default function BackupsPanel({ onChanged }: { onChanged?: () => void }) 
           <td><a className="icon-btn" href={api.backupDownloadUrl(b.name)} download={b.name} aria-label={`Descargar ${b.name}`} title="Descargar"><Download size={14} /></a></td></tr>)}
       </tbody></table>{status.backups.length > 10 && <p className="section-note">Y {status.backups.length - 10} copias más en <code>{status.directory}</code>.</p>}</div>
         : <p className="section-note">Aún no hay copias en <code>{status.directory}</code>. Crea la primera ahora.</p>}
-      <p className="section-note">Restaurar: detén el servidor y ejecuta <code>npm run backup:restore -- &lt;archivo&gt; --yes</code>. Guarda también una copia fuera de este servidor.</p>
+      <p className="section-note">Recuperar: <code>npm run backup:decrypt -- &lt;copia.nxb&gt; &lt;archivo-NUEVO.sqlite&gt;</code> comprueba la copia y la descifra en un archivo nuevo (nunca sobrescribe la base activa). Guarda la clave y una copia fuera de este servidor.</p>
     </>}
   </section>;
 }
