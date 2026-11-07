@@ -63,3 +63,13 @@ test('APP_PASSWORD bootstraps an admin account; per-user sessions protect docume
   assert.equal((await fetch(`${origin}/api/logout`, { method: 'POST', headers })).status, 200); assert.equal((await fetch(`${origin}/api/clients`, { headers })).status, 401);
   assert.equal((await fetch(`${origin}/api/setup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'intruso', displayName: 'X', password: 'una-clave-muy-larga' }) })).status, 409);
 });
+test('revenue goals are validated per currency, rounded, persisted and cleared when zero', async () => {
+  assert.deepEqual(await (await request('/api/goals')).json(), {});
+  assert.equal((await request('/api/goals', 'PUT', { USD: { monthly: -5, yearly: 0 } })).status, 400);
+  assert.equal((await request('/api/goals', 'PUT', { XYZ: { monthly: 5, yearly: 0 } })).status, 400);
+  assert.equal((await request('/api/goals', 'PUT', { USD: { monthly: 100, yearly: 1200, extra: 1 } })).status, 400);
+  const saved = await request('/api/goals', 'PUT', { USD: { monthly: 3000.456, yearly: 36000 }, EUR: { monthly: 0, yearly: 0 } }); assert.equal(saved.status, 200);
+  assert.deepEqual(await saved.json(), { USD: { monthly: 3000.46, yearly: 36000 } });
+  assert.deepEqual(await (await request('/api/goals')).json(), { USD: { monthly: 3000.46, yearly: 36000 } });
+  assert.deepEqual(await (await request('/api/goals', 'PUT', { USD: { monthly: 0, yearly: 0 } })).json(), {});
+});

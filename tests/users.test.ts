@@ -97,6 +97,7 @@ test('billing managers handle clients, contracts and collection status, but not 
   assert.equal((await call(`/api/clients/${client.body.id}`, 'DELETE', undefined, gema)).status, 200);
   assert.equal((await call('/api/invoices/inv-01/status', 'PATCH', { status: 'pagada' }, gema)).status, 200);
   assert.equal((await call('/api/supplier', 'PUT', { city: 'Otra' }, gema)).status, 403);
+  assert.equal((await call('/api/goals', 'GET', undefined, gema)).status, 200); assert.equal((await call('/api/goals', 'PUT', { USD: { monthly: 1, yearly: 12 } }, gema)).status, 403);
   assert.equal((await call('/api/users', 'GET', undefined, gema)).status, 403);
   assert.equal((await call('/api/security-events', 'GET', undefined, gema)).status, 403);
 });
@@ -152,6 +153,8 @@ test('fiscal and operational routes enforce personal roles even with a valid CSR
   }
   for(const role of ['gestor','lectura']) assert.equal((await call('/api/fiscal/report?year=2026','GET',undefined,credentials[role])).status,200);
   assert.equal((await call('/api/fiscal/report?year=2026','GET',undefined,credentials.tecnico)).status,403);
+  for(const role of ['gestor','tecnico','lectura']) assert.equal((await call('/api/goals','PUT',{CUP:{monthly:1000,yearly:12000}},credentials[role])).status,403);
+  assert.equal((await call('/api/goals','PUT',{CUP:{monthly:1000,yearly:12000}},admin)).status,200);
   assert.equal((await call('/api/security/status','GET',undefined,credentials.gestor)).status,403);
   assert.equal((await call('/api/security/status','GET',undefined,admin)).body.authentication.multiuser,true);
   const input={occurredOn:'2026-01-15',kind:'income',description:'Cobro de fixture de permisos fiscales',originalAmount:5,currency:'CUP',exchangeRate:1,exchangeRateSource:'',exchangeRateDate:'',evidenceReference:'FIXTURE-ONLY-FISCAL',documented:true,taxCode:'',invoiceId:'',deductibility:'not_deductible',classificationBasis:'',idempotencyKey:crypto.randomUUID()};

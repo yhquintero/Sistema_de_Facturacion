@@ -29,6 +29,7 @@ El modo se conserva tras inicializar. El panel solicita frase sin eco, guarda sc
 ## Lo que incluye
 
 - Escritorio/tablet/móvil, búsqueda, clientes, contratos, catálogo, perfil del Suministrador, resumen financiero y persistencia SQLite WAL.
+- Se preserva PR #4: paleta Ctrl/⌘+K, atajos, tema automático/claro/oscuro, tamaño de letra, avisos y primeros pasos; **Análisis y metas** por moneda, CSV e informe imprimible. Las metas se guardan en el servidor, solo Admin las cambia. El análisis comercial por estado de factura **no sustituye cobros/asientos del libro fiscal**.
 - Textos íntegros de ambas actividades en `shared/types.ts`; no se reescriben ni se confunde su texto con autorización fiscal.
 - Desglose económico y técnico por equipo: hardware/serie/activo; SO/edición/versión/licencia/actualizaciones; programas/versiones/licencias/configuración; drivers/proveedor/versión y pruebas de verificación.
 - Firma del Cliente Final con consentimiento de conformidad, snapshot histórico, huella de contenido y registro de eventos. No es firma digital certificada ni autentica de forma independiente al firmante.
@@ -39,6 +40,30 @@ El modo se conserva tras inicializar. El panel solicita frase sin eco, guarda sc
 - **Fiscal · Cuba / ONAT**: perfil/vector declarado, cobros/gastos/tributos/seguridad social/retenciones, soporte, cambio documentado→CUP, reversión/idempotencia, resumen mensual y conciliación. XLSX/CSV/ZIP de preparación, no formularios oficiales.
 - **Cuentas personales y cuatro roles** aplicados por el servidor, contraseñas temporales/cambio obligatorio, desactivación, revocación de sesiones y actividad de acceso. Se conservan las cuentas incorporadas por PR #2.
 - Pantalla **Seguridad y operación** (administradores) y aviso de privacidad inicial. MFA, aislamiento entre negocios/clientes, sellado externo, certificación, contabilidad NCIF completa y modelos finales ONAT siguen pendientes.
+
+## Experiencia de uso
+
+Inspirada en la Web de [NovaGest](https://github.com/yhquintero/inventario), adaptada a la facturación.
+
+- **Paleta de comandos (`Ctrl/⌘ + K` o `/`):** busca facturas, clientes y contratos sin distinguir mayúsculas ni tildes («logistico» encuentra «Logístico») y resalta lo que coincide. También ejecuta acciones: nueva factura, nuevo cliente, ver vencidas, cambiar tema… Usa ↑ ↓ y Enter. Solo muestra lo que tu rol permite.
+- **Atajos de teclado:** funcionan cuando no estás escribiendo en un campo. Pulsa `?` para verlos todos.
+
+  | Tecla | Acción |
+  | --- | --- |
+  | `Ctrl/⌘ + K`, `/` | Buscar o ejecutar una acción |
+  | `N` | Nueva factura |
+  | `T` | Cambiar tema |
+  | `G` y luego `R` `F` `C` `O` `S` `A` `N` `U` | Ir a Resumen, Facturas, Clientes, Contratos, Catálogo, Análisis, Mi negocio o Usuarios |
+  | `?` | Lista de atajos |
+
+- **Tema automático, claro u oscuro:** «Automático» sigue al sistema y cambia en vivo si el equipo pasa a modo nocturno. La hoja de la factura y el lienzo de firma siguen en blanco, como el papel, y la impresión sale siempre en claro. Se elige en **Apariencia**, con el botón de la barra superior o con `T`.
+- **Tamaño de letra:** Normal, Grande o Muy grande. Agranda textos, iconos y botones a la vez; al imprimir se usa el normal. Tema y letra se guardan en cada navegador.
+- **Avisos:** la campana y el Resumen avisan de facturas vencidas (urgente), facturas que vencen en 7 días, conformidades pendientes, contratos que terminan en 30 días o que siguen activos tras su fin y borradores sin tocar en 14 días. El menú Facturas se marca en rojo si hay vencidas.
+- **Primeros pasos:** una lista en el Resumen guía la puesta en marcha: datos del negocio, primer cliente, contrato, factura, firma y meta. Se puede ocultar.
+
+Las metas se guardan en el servidor (`GET/PUT /api/goals`): todos las consultan y solo quien edita **Mi negocio** (administrador) puede cambiarlas.
+
+> Para desarrolladores: `src/index.css` se escribe con colores normales. Al compilar, `scripts/theme-colors.ts` convierte cada color en una variable y calcula su versión oscura (mismo tono, luz invertida; los textos nunca bajan de una luz legible y las sombras no se invierten). Para que un color de acento se aclare en oscuro, usa tonos con luminosidad inferior al 50 %. Las zonas con `.theme-keep-light` o `.paper-sheet` se quedan en claro.
 
 ## Usuarios, roles y acceso
 

@@ -1,7 +1,7 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
 import { calculateInvoiceTotals, roundMoney } from '../shared/invoiceMath';
-import { clientSchema, contractSchema, invoiceInputSchema, invoiceStatusSchema, serviceSchema, signatureSchema, supplierSchema, validate } from './validation';
+import { clientSchema, contractSchema, invoiceInputSchema, invoiceStatusSchema, revenueGoalsSchema, serviceSchema, signatureSchema, supplierSchema, validate } from './validation';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -13,6 +13,7 @@ import {
   type ServiceCatalogItem,
   type Invoice,
   type DashboardStats,
+  type RevenueGoals,
 } from '../shared/types';
 import { DEFAULT_SERVICE_CATALOG } from '../shared/catalogPresets';
 import { assertValidSignature, createSampleSignatureDataUrl } from './utils/signaturePng';
@@ -999,6 +1000,17 @@ function ensureUnique(table: Table, column: 'code' | 'contract_number' | 'invoic
 function audit(invoiceId: string, event: string, details: object = {}) { const actor = currentActor(); db.prepare('INSERT INTO invoice_events (invoice_id,event_type,occurred_at,details_json,actor_id,actor_name) VALUES (?,?,?,?,?,?)').run(invoiceId, event, new Date().toISOString(), JSON.stringify(details), actor.id, actor.name); }
 
 export function getWorkspaceInfo() { return { demo: db.prepare("SELECT value FROM app_metadata WHERE key='demo_mode'").get()?.value === 'true' }; }
+/** Metas de facturación por moneda (Análisis y metas). Se guardan en app_metadata. */
+export function getRevenueGoals(): RevenueGoals {
+  const raw = db.prepare("SELECT value FROM app_metadata WHERE key='revenue_goals'").get()?.value;
+  try { return raw ? validate(revenueGoalsSchema, JSON.parse(String(raw))) as RevenueGoals : {}; } catch { return {}; }
+}
+export function saveRevenueGoals(input: unknown): RevenueGoals {
+  const parsed = validate(revenueGoalsSchema, input) as RevenueGoals;
+  const goals = Object.fromEntries(Object.entries(parsed).filter(([, g]) => g.monthly > 0 || g.yearly > 0).map(([c, g]) => [c, { monthly: roundMoney(g.monthly), yearly: roundMoney(g.yearly) }]));
+  db.prepare("INSERT INTO app_metadata (key,value) VALUES ('revenue_goals',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(goals));
+  return goals;
+}
 export function getSupplierProfile(): SupplierProfile { return camelRow(db.prepare('SELECT * FROM supplier_profile WHERE id=1').get()!) as unknown as SupplierProfile; }
 export function updateSupplierProfile(input: Partial<SupplierProfile>): SupplierProfile {
   const current = getSupplierProfile();

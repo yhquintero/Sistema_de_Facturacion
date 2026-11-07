@@ -101,21 +101,21 @@ export const SignaturePad: React.FC<SignaturePadProps> = ({
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2 text-xs text-slate-600">
+      <div className="flex items-center justify-between gap-2 sp-head">
         <span className="flex items-center gap-1.5 font-medium">
-          <PenTool className="w-3.5 h-3.5 text-blue-700" />
+          <PenTool className="w-3.5 h-3.5 sp-icon" />
           {label}
         </span>
         <button
           type="button"
           onClick={handleClear}
-          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 text-xs font-medium transition"
+          className="btn btn-secondary btn-sm"
         >
           <Eraser className="w-3.5 h-3.5" />
           Limpiar
         </button>
       </div>
-      <div className="relative rounded-xl border-2 border-dashed border-slate-300 bg-white overflow-hidden shadow-inner">
+      <div className="relative rounded-xl border-2 border-dashed border-slate-300 bg-white overflow-hidden shadow-inner theme-keep-light">
         <canvas
           ref={canvasRef}
           aria-label={label}

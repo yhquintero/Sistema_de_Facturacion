@@ -1,9 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, CircleAlert, LoaderCircle, X } from 'lucide-react';
 import { api } from '../api';
-import type { Client, Contract, Invoice, ServiceCatalogItem, SupplierProfile } from '../../shared/types';
+import type { Client, Contract, Invoice, RevenueGoals, ServiceCatalogItem, SupplierProfile } from '../../shared/types';
 
-type Data = { supplier: SupplierProfile; clients: Client[]; contracts: Contract[]; invoices: Invoice[]; catalog: ServiceCatalogItem[] };
+type Data = { supplier: SupplierProfile; clients: Client[]; contracts: Contract[]; invoices: Invoice[]; catalog: ServiceCatalogItem[]; goals: RevenueGoals };
 type Toast = { id: number; message: string; kind: 'success' | 'error' };
 type ContextValue = Data & { realtime: 'connecting' | 'live' | 'offline' | 'reconnecting'; lastSync: string; refresh: () => Promise<void>; notify: (message: string, kind?: Toast['kind']) => void; navigate: (path: string) => void };
 const AppContext = createContext<ContextValue | null>(null);
@@ -22,8 +22,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const requestSequence = useRef(0);
   const refresh = useCallback(async () => {
     const sequence = ++requestSequence.current;
-    const [supplier, clients, contracts, invoices, catalog] = await Promise.all([api.getSupplier(), api.listClients(), api.listContracts(), api.listInvoices(), api.listCatalog()]);
-    if (sequence === requestSequence.current) { setData({ supplier, clients, contracts, invoices, catalog }); setLastSync(new Date().toISOString()); setError(''); }
+    const [supplier, clients, contracts, invoices, catalog, goals] = await Promise.all([api.getSupplier(), api.listClients(), api.listContracts(), api.listInvoices(), api.listCatalog(), api.getGoals()]);
+    if (sequence === requestSequence.current) { setData({ supplier, clients, contracts, invoices, catalog, goals }); setLastSync(new Date().toISOString()); setError(''); }
   }, []);
   const notify = useCallback((message: string, kind: Toast['kind'] = 'success') => {
     const id = Date.now() + Math.random();

@@ -54,7 +54,7 @@ test('mobile navigation and touch signature canvas work without page overflow', 
 
 test('all views remain contained at mobile, tablet and desktop sizes', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
-  for (const width of [360, 768, 1024, 1440]) { await page.setViewportSize({ width, height: 900 }); for (const route of ['/', '/invoices', '/clients', '/contracts', '/catalog', '/settings', '/invoices/new', '/invoices/inv-02']) { await page.goto(`/#${route}`); await expect(page.locator('h1')).toBeVisible(); await page.waitForTimeout(150); expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), `${route} overflows at ${width}px`).toBe(false); } }
+  for (const width of [360, 768, 1024, 1440]) { await page.setViewportSize({ width, height: 900 }); for (const route of ['/', '/invoices', '/clients', '/contracts', '/catalog', '/settings', '/analytics', '/invoices/new', '/invoices/inv-02']) { await page.goto(`/#${route}`); await expect(page.locator('h1')).toBeVisible(); await page.waitForTimeout(150); expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), `${route} overflows at ${width}px`).toBe(false); } }
   expect(errors).toEqual([]);
 });
 
@@ -96,4 +96,28 @@ test('an administrator invites a read-only colleague who must choose a password 
   await page.goto('http://127.0.0.1:3101/#/fiscal'); await expect(page.getByRole('heading',{name:'Un cierre que puedas explicar.'})).toBeVisible(); await expect(page.getByRole('button',{name:'Registrar movimiento',exact:true})).toBeDisabled(); await expect(page.getByRole('button',{name:'Perfil fiscal',exact:true})).toBeDisabled();
   const session = await (await page.request.get('http://127.0.0.1:3101/api/session')).json(); const blocked = await page.request.post('http://127.0.0.1:3101/api/fiscal/entries',{headers:{'X-CSRF-Token':session.csrfToken},data:{}}); expect(blocked.status()).toBe(403);
   await page.getByRole('button', { name: 'Cerrar sesión', exact: true }).click(); await expect(page.getByRole('button', { name: 'Entrar a mi espacio' })).toBeVisible();
+});
+
+test('keyboard palette, shortcuts, persistent dark theme and revenue goals', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/'); await expect(page.getByRole('heading', { name: 'Todo tu negocio, en orden.' })).toBeVisible();
+  await page.keyboard.press('Control+k'); const palette = page.getByRole('dialog');
+  const input = palette.getByRole('textbox', { name: 'Buscar facturas, clientes y contratos' }); await expect(input).toBeFocused();
+  await input.fill('logistico'); await expect(palette.locator('mark').first()).toHaveText('Logístico');
+  await input.fill('analisis'); await expect(palette.locator('.command-result.active')).toContainText('Análisis y metas'); await input.press('Enter');
+  await expect(page.getByRole('heading', { name: 'Análisis y metas', level: 1 })).toBeVisible();
+  await page.keyboard.press('g'); await page.keyboard.press('f'); await expect(page.getByRole('heading', { name: 'Facturas', exact: true })).toBeVisible();
+  await page.keyboard.press('?'); await expect(page.getByRole('dialog')).toContainText('Atajos de teclado'); await page.keyboard.press('Escape');
+  await page.locator('.sidebar-nav .nav-item', { hasText: 'Apariencia' }).click(); await page.getByRole('radio', { name: /Oscuro/ }).click(); await page.getByRole('button', { name: 'Listo' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  const bg = await page.evaluate(() => getComputedStyle(document.querySelector('.panel, .invoice-table')!).backgroundColor); expect(bg).not.toBe('rgb(255, 255, 255)');
+  await page.reload(); await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.goto('/#/invoices/inv-02'); expect(await page.locator('.paper-sheet').evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(255, 255, 255)');
+  await page.goto('/#/analytics'); await page.getByRole('button', { name: /Fijar metas|Editar metas/ }).click(); const goals = page.getByRole('dialog');
+  await goals.getByLabel(/Meta mensual/).fill('4000'); await goals.getByLabel(/Meta anual/).fill('48000'); await goals.getByRole('button', { name: 'Guardar metas' }).click();
+  await expect(page.locator('.goals-panel')).toContainText('$4,000.00'); await expect(page.getByRole('progressbar', { name: /Este mes/ })).toBeVisible();
+  await page.getByText('Ver datos de la gráfica en tabla').click(); await expect(page.locator('.chart-data-table tbody tr')).toHaveCount(12);
+  await page.goto('/#/analytics'); await page.getByRole('button', { name: 'Editar metas' }).click(); await page.getByRole('dialog').getByLabel(/Meta mensual/).fill(''); await page.getByRole('dialog').getByLabel(/Meta anual/).fill(''); await page.getByRole('dialog').getByRole('button', { name: 'Guardar metas' }).click();
+  await expect(page.getByRole('button', { name: 'Fijar metas' })).toBeVisible();
+  await page.evaluate(() => localStorage.removeItem('nexo.theme')); expect(errors).toEqual([]);
 });

@@ -1,19 +1,19 @@
 # Evidencia de verificación y límites de entrega
 
-Revisión inicial: **2026-11-04, America/Havana**; integración técnica con `main`/PR #2 (`74958dd`): **2026-11-06**; los nombres de logs/artefactos pueden usar UTC del día siguiente. Base `d43c537`, rama `arena/8420774d-sistema-de-facturacion`. Datos exclusivamente sintéticos. No certifica producción, ONAT ni legalidad de un alojamiento concreto.
+Revisión inicial: **2026-11-04, America/Havana**; integración técnica con `main`/PR #2 (`74958dd`) y PR #4 (`ae86f7b`): **2026-11-06**; los nombres de logs/artefactos pueden usar UTC del día siguiente. Base `d43c537`, rama `arena/8420774d-sistema-de-facturacion`. Datos exclusivamente sintéticos. No certifica producción, ONAT ni legalidad de un alojamiento concreto.
 
 ## Ejecutado en este entorno
 
 | Comprobación | Resultado | Alcance |
 |---|---|---|
 | `npm run typecheck` | **PASS** | TypeScript estricto de web/shared/backend/scripts/tests |
-| `npm test` | **81/81 PASS**, 0 fallos, 0 omitidas | Dominio, API, exportación, seguridad, TLS local, backup, fiscal, paquete y arranque |
+| `npm test` | **88/88 PASS**, 0 fallos, 0 omitidas | Dominio, API, exportación, seguridad, TLS local, backup, fiscal, paquete y arranque |
 | `npm run build` | **PASS** | tsc + Vite 6.4.5; frontend compilado de producción |
-| `npm run test:e2e` | **10/10 PASS** | Playwright/Chromium Linux; escritorio, pantallas 360–1440 px y firma táctil emulada; no teléfonos físicos |
+| `npm run test:e2e` | **11/11 PASS** | Playwright/Chromium Linux; escritorio, pantallas 360–1440 px y firma táctil emulada; no teléfonos físicos |
 | `npm audit --json` | **0 avisos conocidos**, todos los niveles | Dependencias del proyecto/lockfile. No scanner de malware, análisis de imagen ni prueba de ausencia de 0-days |
 | Parser tree-sitter-powershell 0.26.6 | **Sin errores de gramática** | `control/Panel-Sistema.ps1`, `control/Nexo.Control.psm1`, `tests/powershell/Panel.Tests.ps1`; **no equivale** al parser/ejecutor real PowerShell |
 | Paquete de servicio | ZIP producido y verificable | Allowlist, exclusión de datos/secrets/.env, manifest de hashes; pruebas de no sobrescritura, nombres únicos y rechazo de symlink/marcadores |
-| Actividades oficiales | Preservadas | `shared/types.ts` sin modificación; pruebas verifican texto íntegro |
+| Actividades oficiales | Preservadas | `OFFICIAL_PRIMARY_ACTIVITY` y `OFFICIAL_SECONDARY_ACTIVITY` intactos; PR #4 añade tipos de metas sin cambiar sus literales |
 
 Entorno: **Node 22.22.3, npm 10.9.8, Debian 12, OpenSSL**. Se usó Chromium 153.0.0 de paquete npm temporal `@sparticuz/chromium` con bibliotecas incluidas para ejecutar las pruebas; no se añadió como dependencia del producto. Ejecución local del navegador:
 
@@ -25,7 +25,7 @@ En un checkout limpio, ejecuta `npm run build` antes de `npm test`: la regresió
 
 En CI/destino normal: `npx playwright install --with-deps chromium` y `npm run test:e2e`. No replicar flags de un navegador de prueba como política de seguridad de los equipos de usuarios.
 
-Los logs de integración están en `tmp/integration-final-tests.log`, `tmp/integration-final-build.log`, `tmp/integration-final-e2e.log`, `tmp/integration-final-audit.json`; los de entrega previa en `tmp/*-delivery.log` (no versionados ni parte del paquete). La evidencia reproducible persistente es el código de pruebas y los comandos, no un certificado emitido por un tercero.
+Los logs de integración están en `tmp/integration-pr4-tests.log`, `tmp/integration-pr4-build.log`, `tmp/integration-pr4-e2e.log`, `tmp/integration-pr4-audit.json`; los de entrega previa en `tmp/*-delivery.log` (no versionados ni parte del paquete). La evidencia reproducible persistente es el código de pruebas y los comandos, no un certificado emitido por un tercero.
 
 ## Pruebas añadidas y qué acreditan
 
@@ -36,9 +36,10 @@ Los logs de integración están en `tmp/integration-final-tests.log`, `tmp/integ
 - `tests/package-service.test.ts`: archivo real ZIP/manifest; salida nueva/repetible; exclusión de `.env`, claves/datos; rechazo de claves privadas incrustadas y enlaces simbólicos (el caso symlink solo aplica cuando el SO lo permite).
 - `tests/control-startup.test.ts`: handshake local de identidad del backend; señal privada de parada y cierre SQLite comprobado; demo pública no acepta una BD marcada privada; primera cuenta desde hash-file y reinicio con cuentas persistidas sin secreto de bootstrap.
 - `tests/users.test.ts`: cuentas/roles del PR #2 preservados; permisos comerciales y fiscales con CSRF válido, cambio obligatorio/desactivación/revocación/último administrador, hash legacy/NFKC y cambio al formato reforzado, bootstrap sin sobrescribir cuentas, CSRF ligado a sesión y resistencia al reset de rate limit iniciando sesión con otra cuenta.
+- `tests/insights.test.ts`: avisos, análisis por moneda/estados, progreso de metas, búsqueda sin tildes y paleta oscura derivada del CSS. `tests/api.test.ts` conserva validación/redondeo/persistencia de metas; `tests/users.test.ts` prueba que solo Admin las cambia incluso con CSRF válido.
 - `tests/domain.test.ts`: nueva prueba protege contenido de factura emitida incluso sin firma y permite actualizar estado de cobro; permanecen las pruebas previas de firmas, snapshots, Decimal, numeración, borradores, actividades y validación.
 - `tests/e2e/fiscal-security.spec.ts`: alta/reversión del libro, descarga XLSX, sincronización en otra ventana/contexto; interfaz fiscal/seguridad sin overflow móvil; dos sesiones protegidas con token CSRF y sin recarga. No demuestra aislamiento entre clientes: ambas sesiones pertenecen al mismo negocio.
-- `tests/e2e/workflows.spec.ts`: se conservan flujos completos Cliente→Contrato→Factura→anexo→firma→PDF/DOCX/XLSX, móvil táctil y PWA privada; ahora también aviso de privacidad antes del login y logout con CSRF; invitación por administrador, cambio temporal obligatorio y Lectura sin escritura comercial/fiscal en UI/API.
+- `tests/e2e/workflows.spec.ts`: se conservan flujos completos Cliente→Contrato→Factura→anexo→firma→PDF/DOCX/XLSX, móvil táctil y PWA privada; ahora también aviso de privacidad antes del login y logout con CSRF; invitación por administrador, cambio temporal obligatorio y Lectura sin escritura comercial/fiscal en UI/API; Ctrl+K/atajos, tema persistente, papel blanco en oscuro y edición de metas.
 
 ## Ampliación de evidencia CI — 2026-11-06 (America/Havana)
 
@@ -50,11 +51,13 @@ La [ejecución GitHub Actions del commit `74af521`](https://github.com/yhquinter
 
 No acredita Windows del usuario, instalación/confianza interactiva de CA, regla de firewall, dispositivos físicos, despliegue público, Docker ni aceptación ONAT. Las advertencias de Actions sobre runtime Node 20 migrado a Node 24 son no bloqueantes; actualizar los pins de acciones, con revisión, sigue siendo mantenimiento de cadena de suministro. Los gates de producción de abajo no desaparecen porque CI esté verde.
 
-## Integración de PR #2 con seguridad/fiscal — 2026-11-06
+## Integración de PR #2 y PR #4 con seguridad/fiscal — 2026-11-06
 
 Se conserva la funcionalidad de `main` (`74958dd`): cuentas SQLite, cuatro roles, recuperación local, UI de equipo y autor del historial comercial. Se integra con username obligatorio, hash de bootstrap solo inicial, compatibilidad de hashes legados, scrypt reforzado en contraseñas nuevas, CSRF por sesión, expiración/límites y revocación SSE. Los permisos nuevos separan fiscal.read/write y security.read; una factura emitida sigue siendo inmutable incluso para Admin/Gestor.
 
-Los **81 tests Node y 10 E2E** de la tabla corresponden a la combinación local; la entrega anterior tenía 67 y 9. El run histórico `74af521` de arriba **no valida por sí solo esta integración**. La fusión de [PR #3](https://github.com/yhquintero/Sistema_de_Facturacion/pull/3) está condicionada a nuevos checks Linux y Windows verdes sobre el HEAD integrado; sus resultados/commit quedan consultables en los checks del PR. No se reemplaza CI por el resultado local ni se omiten sus fallos.
+Se preserva también PR #4 (`ae86f7b`): paleta/atajos, preferencias visuales, avisos, onboarding y análisis/metas. El análisis por estados se distingue del libro de cobros fiscal; el HTML offline mantiene scripts externos compatibles con CSP.
+
+La [CI de `d43ec7d`](https://github.com/yhquintero/Sistema_de_Facturacion/actions/runs/42322523196) aprobó Linux y Windows con las cuentas de PR #2 y seguridad/fiscal, **antes** de añadir PR #4. No certifica esa combinación posterior. Los **88 tests Node y 11 E2E** de la tabla corresponden a la combinación local completa; la entrega anterior tenía 67 y 9. El run histórico `74af521` de arriba **no valida por sí solo esta integración**. La fusión de [PR #3](https://github.com/yhquintero/Sistema_de_Facturacion/pull/3) está condicionada a nuevos checks Linux y Windows verdes sobre el HEAD integrado; sus resultados/commit quedan consultables en los checks del PR. No se reemplaza CI por el resultado local ni se omiten sus fallos.
 
 ## Límites de entorno y pruebas pendientes
 
