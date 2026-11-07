@@ -96,7 +96,7 @@ try {
             if ($IsWindows -and $message -notmatch "PID $PID") { throw "Debe identificar el proceso que ocupa el puerto: $message" }
         } finally { $listener.Stop() }
         Assert-PortAvailable $busy 'HTTPS' -WaitSeconds 1
-        if ((Get-FreePortSuggestion 8443 8444) -in @(8443, 8444)) { throw 'No se deben sugerir los puertos de NovaGest.' }
+        $suggested = Get-FreePortSuggestion 8443 8460; if ($suggested -in @(8443, 8444)) { throw "No se deben sugerir los puertos de NovaGest: $suggested" }
         # SetPort mueve una instalación existente (Local y LAN) sin tocar modo, TLS ni puerto interno.
         $originalState = $script:State; $originalConfigFile = $script:ConfigFile; $originalProcessFile = $script:ProcessFile
         try {
