@@ -46,3 +46,65 @@
 .audit-events li time { color: #a5b09b; font-size: 10px; }
 .audit-events li p { font-size: 10px; margin-top: 5px; color: #a2ae98; }
 .audit-loading { display: flex; justify-content: center; gap: 12px; align-items: center; min-height: 130px; font-size: 12px; color: #91a281; }
+
+/* ===== Usuarios, roles y acceso ===== */
+.plain-fieldset{border:0;margin:0;padding:0;min-width:0}
+.plain-fieldset:disabled canvas{pointer-events:none;opacity:.85}
+.plain-fieldset:disabled input,.plain-fieldset:disabled select,.plain-fieldset:disabled textarea{background:#f8faf8;color:#6f7d72;cursor:default}
+.quick-action:disabled{opacity:.45;cursor:not-allowed}
+.role-note{font-size:9.5px;color:#9aa59c;line-height:1.6;margin-top:8px}
+.nav-count.nav-alert{background:#fbf1dc;color:#b28a3b}
+.role-badge{display:inline-flex;align-items:center;font-size:8.5px;font-weight:600;letter-spacing:.2px;border-radius:5px;padding:4px 8px;white-space:nowrap;background:#f1f4f1;color:#6f7d72}
+.role-badge.admin{background:#e9f1ea;color:#3f7651}
+.role-badge.gestor{background:#eef0fa;color:#5866a8}
+.role-badge.tecnico{background:#fbf3e4;color:#a07a35}
+.role-badge.lectura{background:#f2f2f2;color:#7f8781}
+.users-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:18px}
+.users-stat{display:flex;align-items:center;gap:13px;padding:17px 18px;color:#7fa184}
+.users-stat strong{display:block;font-size:20px;font-weight:650;color:#26372b;letter-spacing:-.6px;line-height:1.1}
+.users-stat span{font-size:9.5px;color:#93a096}
+.users-table td{vertical-align:middle}
+.users-table tr.inactive td{opacity:.55}
+.user-handle{font-size:9px;color:#9aa59c;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.you-tag{display:inline-block;margin-left:7px;font-size:7.5px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#4c8160;background:#e9f2eb;border-radius:4px;padding:2px 5px;vertical-align:middle}
+.users-columns{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:18px;margin-top:18px;align-items:start}
+.users-setup{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
+.users-setup-form{padding:26px}
+.users-setup-form h2{font-size:15px;font-weight:650;letter-spacing:-.3px;margin-bottom:6px}
+.users-setup-form code,.alert code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9.5px;background:#fff8;padding:1px 4px;border-radius:4px}
+.role-matrix td,.role-matrix th{text-align:center;padding:11px 12px}
+.role-matrix td:first-child,.role-matrix th:first-child{text-align:left;white-space:normal;color:#526157}
+.matrix-yes{color:#5c9a6d;display:inline-block}
+.matrix-no{color:#cdd4ce}
+.security-events{padding:4px 22px 18px;max-height:520px;overflow:auto}
+.security-events li.warning strong{color:#b4746f}
+.role-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:6px}
+.role-option{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--border);border-radius:10px;padding:13px 14px;cursor:pointer;transition:.15s;background:#fff}
+.role-option:hover{border-color:#c9d9cc}
+.role-option.selected{border-color:#7fae8b;background:#f5faf6;box-shadow:0 0 0 3px #7fae8b1a}
+.role-option.disabled{cursor:not-allowed;opacity:.7}
+.role-option input{margin-top:3px;accent-color:#4c8160}
+.role-option span{font-size:9.5px;line-height:1.6;color:#8c978f}
+.role-option strong{display:block;font-size:11px;color:#2b3b30;margin-bottom:2px}
+.check-row{display:flex;gap:10px;align-items:flex-start;margin-top:12px;font-size:9.5px;line-height:1.6;color:#8c978f;cursor:pointer}
+.check-row input{margin-top:3px;accent-color:#4c8160}
+.check-row strong{display:block;font-size:10.5px;color:#2b3b30}
+.password-generator{display:flex;align-items:flex-end;gap:8px}
+.password-generator .field{flex:1}
+.password-generator .btn{margin-bottom:22px}
+.password-generator .icon-btn{margin-bottom:24px}
+.credentials-card{display:grid;gap:10px;border:1px dashed #c9d9cc;background:#f8fbf8;border-radius:10px;padding:16px;margin-bottom:14px}
+.credentials-card span{display:block;font-size:8.5px;text-transform:uppercase;letter-spacing:.5px;color:#93a096;margin-bottom:3px}
+.credentials-card code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px;color:#24372a;word-break:break-all}
+.account-head{display:flex;align-items:center;gap:14px;margin-bottom:18px}
+.account-head h3{font-size:15px;font-weight:650;letter-spacing:-.3px}
+.account-head p{font-size:10px;color:#8c978f;margin-top:3px}
+.profile-avatar.large{width:46px;height:46px;font-size:14px}
+.account-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
+.account-permissions{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:6px}
+.account-permissions li{display:flex;gap:7px;align-items:center;font-size:10px;color:#5f6e63}
+.account-permissions svg{color:#5c9a6d;flex:none}
+.audit-actor{font-size:9px;color:#9aa59c}
+@media (max-width:1100px){.users-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.users-columns,.users-setup{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:720px){.role-options,.account-grid{grid-template-columns:minmax(0,1fr)}.users-table .hide-mobile{display:none}.users-stats{gap:10px}.users-stat{padding:14px}}
+.login-card form .field+.field,.account-password .field+.field{margin-top:14px}

@@ -19,7 +19,7 @@ Abre `http://localhost:3000`. El servidor escucha en `0.0.0.0`; desde otro dispo
 
 ```bash
 cp .env.example .env
-# Edita .env: SEED_DEMO=false, DATA_DIR=./data-real y APP_PASSWORD=<una contraseña propia>
+# Edita .env: SEED_DEMO=false, DATA_DIR=./data-real y APP_PASSWORD=<contraseña del primer administrador>
 npm run build
 npm start
 ```
@@ -27,10 +27,12 @@ npm start
 - `DATA_DIR` debe señalar una **base nueva** para aplicar `SEED_DEMO=false`. Cambiar la variable no elimina ni transforma documentos existentes.
 - El espacio vacío conserva el catálogo editable de servicios, pero no crea clientes, contratos, facturas, datos fiscales ni firmas ficticias. El impuesto inicial es **0 %**: configura el que corresponda.
 - Completa **Mi negocio**, incluidos tus datos fiscales y de contacto. Los dos textos oficiales de actividades están protegidos contra cambios.
-- Usa HTTPS y una contraseña fuerte antes de exponer datos personales. `npm start` exige una contraseña de al menos 12 caracteres, salvo la habilitación explícita de una demostración pública.
+- En el primer arranque, `APP_PASSWORD` crea la cuenta **`admin`** (o la definida en `ADMIN_USERNAME`). Entra con ese usuario y crea las cuentas del equipo en **Usuarios y acceso**.
+- Usa HTTPS y una contraseña fuerte antes de exponer datos personales. `npm start` exige `APP_PASSWORD` (≥12 caracteres) mientras no exista ninguna cuenta, salvo la habilitación explícita de una demostración pública.
 
 ## Qué incluye
 
+- **Usuarios y roles:** cuentas personales con contraseña propia, cuatro roles aplicados por el servidor, contraseñas temporales, desactivación, cierre de sesiones y registro de accesos. Ver [Usuarios, roles y acceso](#usuarios-roles-y-acceso).
 - **Panel:** facturación, cobros, pendientes, actividad reciente, contratos y acceso rápido. Los importes no se mezclan entre monedas.
 - **Clientes:** datos fiscales, contacto y representante autorizado.
 - **Contratos Suministrador ↔ Cliente:** alcance, vigencia, moneda, condiciones, garantías, cláusulas y declaración de recepción.
@@ -107,20 +109,54 @@ Un borrador puede guardarse sin contrato o servicios, pero no firmarse. Emitir e
 
 Aritmética decimal y redondeo comercial **HALF_UP a dos decimales**: importe bruto por línea → descuento por línea → suma neta → impuesto global → total. Excel reproduce las mismas etapas con `ROUND` y resultados precalculados. No se implementan retenciones, múltiples tasas por línea ni monedas sin dos decimales. Límite de subtotal/total por factura: 9.999.999.999,99.
 
+## Usuarios, roles y acceso
+
+Cada persona entra con **su propio usuario y contraseña**. El rol se comprueba en el servidor en cada solicitud; la interfaz solo oculta lo que el servidor rechazaría.
+
+| Permiso | Administrador | Gestor de facturación | Técnico | Solo lectura |
+|---|:-:|:-:|:-:|:-:|
+| Consultar todo y descargar PDF/Word/Excel | ✓ | ✓ | ✓ | ✓ |
+| Gestionar usuarios y ver el registro de accesos | ✓ | — | — | — |
+| Editar **Mi negocio** (Suministrador) | ✓ | — | — | — |
+| Catálogo, clientes y contratos | ✓ | ✓ | — | — |
+| Crear y editar **borradores** (incluido el anexo técnico por equipo) | ✓ | ✓ | ✓ | — |
+| Emitir, editar emitidas, cambiar estado de cobro y anular | ✓ | ✓ | — | — |
+| Eliminar borradores | ✓ | ✓ | — | — |
+| Registrar la firma del Cliente Final | ✓ | ✓ | ✓ | — |
+
+- **Alta:** el administrador crea la cuenta con una contraseña temporal (puede generarla) que se muestra una sola vez. Por defecto se exige cambiarla en el primer acceso; hasta entonces el servidor bloquea cualquier otra operación.
+- **Cambios inmediatos:** un cambio de rol se aplica en la siguiente solicitud, sin volver a iniciar sesión. Desactivar una cuenta o asignarle una contraseña nueva cierra sus sesiones. Cambiar la propia contraseña (desde **Mi cuenta**, con la actual) cierra las demás sesiones.
+- **Trazabilidad:** las cuentas no se eliminan, se desactivan. El registro de actividad de cada factura indica quién creó, editó, cambió el cobro o registró la firma. **Actividad de acceso** guarda inicios de sesión, intentos fallidos, altas, cambios de rol, restablecimientos y cierres de sesión (los últimos 5000 eventos). Nunca se registran contraseñas.
+- **Protecciones:** nadie puede cambiar su propio rol ni desactivarse, y siempre queda al menos un administrador activo. Los usuarios usan minúsculas, números, punto o guion; las contraseñas tienen al menos 12 caracteres.
+- **Contraseñas y sesiones:** contraseñas con scrypt y sal por cuenta; sesiones de 8 horas en SQLite guardadas como SHA-256 del token (sobreviven a un reinicio, la cookie no se puede reconstruir desde la base). Límite de 10 intentos fallidos por IP cada 15 minutos.
+- **Recuperar el acceso** desde la consola del servidor:
+
+  ```bash
+  npm run user:reset-password -- admin           # contraseña temporal para una cuenta existente
+  npm run user:reset-password -- admin --admin   # además la reactiva como administrador (o la crea)
+  # Docker: docker compose exec facturacion npm run user:reset-password -- admin
+  ```
+
+- **Modo abierto:** sin cuentas ni `APP_PASSWORD` (desarrollo), cualquiera con la dirección trabaja en el espacio como si fuera administrador, salvo gestionar usuarios. Desde **Usuarios y acceso** puedes crear el primer administrador; a partir de ese momento se exige iniciar sesión. Con `ALLOW_PUBLIC_DEMO=true` en producción no se pueden crear cuentas desde la interfaz.
+- **Actualizar desde la contraseña compartida:** en una instalación existente, el primer arranque con esta versión crea `admin` con el valor actual de `APP_PASSWORD`. Desde entonces `APP_PASSWORD` se ignora: cambiarla no modifica ninguna cuenta; usa **Mi cuenta** o el comando de recuperación.
+
+Sigue siendo un espacio de trabajo de un solo negocio: no hay varias empresas, permisos por cliente ni inicio de sesión con proveedores externos (SSO/2FA).
+
 ## Servidor, acceso y persistencia
 
 | Variable | Uso |
 |---|---|
 | `PORT` | Puerto HTTP; `3000` por defecto. |
 | `DATA_DIR` | Directorio de SQLite; `./data` por defecto. Usa almacenamiento persistente. |
-| `APP_PASSWORD` | Contraseña compartida del espacio; ≥12 caracteres. Sesión de 8 horas. |
+| `APP_PASSWORD` | Contraseña del primer administrador; ≥12 caracteres. Solo se usa si aún no existe ninguna cuenta. |
+| `ADMIN_USERNAME` | Usuario de ese primer administrador; `admin` por defecto. |
 | `SEED_DEMO` | `true` incluye ejemplos; `false` crea un espacio vacío. Solo afecta al primer arranque de una base nueva. Por defecto: demostración en desarrollo y vacío en producción. |
 | `ALLOW_PUBLIC_DEMO` | `true` permite producción sin contraseña, **únicamente con datos ficticios**. |
 | `TRUST_PROXY` | `1` si hay exactamente un proxy de confianza con HTTPS; `0` por defecto. |
 
-Autenticación de **un espacio y una contraseña**, no un sistema multiusuario/RBAC. La cookie es HttpOnly, SameSite=Strict y Secure bajo HTTPS correctamente detectado. Hay límite de intentos de acceso y comprobación de origen en solicitudes modificadoras. Las sesiones residen en memoria: reiniciar obliga a iniciar sesión de nuevo. No expongas directamente el puerto si configuras confianza en un proxy. Rota la contraseña reiniciando el servidor.
+La cookie de sesión es HttpOnly, SameSite=Strict y Secure bajo HTTPS correctamente detectado. Hay límite de intentos de acceso y comprobación de origen en solicitudes modificadoras. No expongas directamente el puerto si configuras confianza en un proxy (las IP del registro de accesos dependen de `TRUST_PROXY`).
 
-`data/facturacion.sqlite` guarda los datos y las firmas en PNG. Se habilitan claves foráneas y WAL; el archivo y las copias se crean con permisos privados en sistemas POSIX. No lo publiques en Git. El service worker **nunca almacena APIs, documentos, sesiones o firmas**; el modo móvil necesita conexión para consultar, guardar, firmar o exportar. No es una aplicación nativa para tiendas ni un sistema offline de edición.
+`data/facturacion.sqlite` guarda los datos, las firmas en PNG, las cuentas (con contraseñas cifradas mediante scrypt) y el registro de accesos. Se habilitan claves foráneas y WAL; el archivo y las copias se crean con permisos privados en sistemas POSIX. No lo publiques en Git. El service worker **nunca almacena APIs, documentos, sesiones o firmas**; el modo móvil necesita conexión para consultar, guardar, firmar o exportar. No es una aplicación nativa para tiendas ni un sistema offline de edición.
 
 ### Docker
 
@@ -141,7 +177,7 @@ npm run backup
 docker compose exec facturacion npm run backup
 ```
 
-Se crea una copia SQLite consistente mediante `VACUUM INTO` en `DATA_DIR/backups/`, incluso con WAL activo. Guarda copias cifradas fuera del servidor y aplica una política de retención; contienen datos personales y firmas. No hay envío automático a servicios externos.
+Se crea una copia SQLite consistente mediante `VACUUM INTO` en `DATA_DIR/backups/`, incluso con WAL activo. Las sesiones activas se eliminan de la copia. Guarda copias cifradas fuera del servidor y aplica una política de retención; contienen datos personales, firmas y los hashes de contraseña de las cuentas. No hay envío automático a servicios externos.
 
 Para restaurar: **detén el servidor**, conserva una copia de lo existente, reemplaza `facturacion.sqlite` por la copia válida, elimina los antiguos archivos auxiliares `facturacion.sqlite-wal`/`facturacion.sqlite-shm` del destino detenido y vuelve a iniciar. Verifica clientes, totales, firmas y huellas. Ensaya la recuperación antes de depender de ella.
 
@@ -156,7 +192,7 @@ npm run test:e2e
 npm audit
 ```
 
-Las pruebas de dominio/API/exportación crean bases aisladas temporales. Cubren validación, redondeo, numeración, relaciones, firma/consentimiento, instantáneas, integridad, auditoría, persistencia, autenticación y las **20 combinaciones de papel/orientación** en los tres formatos. Playwright usa bases desechables en `tmp/`, sin modificar `data/`: prueba CRUD, el flujo contractual completo, firma real en canvas, descargas, borradores, táctil y tamaños de 360 a 1440 px. Si usas un Chromium propio, establece `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`.
+Las pruebas de dominio/API/exportación crean bases aisladas temporales. Cubren validación, redondeo, numeración, relaciones, firma/consentimiento, instantáneas, integridad, auditoría, persistencia, autenticación, cuentas y la matriz de roles, y las **20 combinaciones de papel/orientación** en los tres formatos. Playwright usa bases desechables en `tmp/`, sin modificar `data/`: prueba CRUD, el flujo contractual completo, el alta de un usuario de solo lectura con cambio de contraseña obligatorio, firma real en canvas, descargas, borradores, táctil y tamaños de 360 a 1440 px. Si usas un Chromium propio, establece `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`.
 
 Hay CI de GitHub Actions para tipos, pruebas, compilación y navegador. La tipografía PDF DejaVu y su licencia están en `server/assets/fonts/`; no se requieren fuentes, CDNs ni APIs externas en ejecución.
 
@@ -165,10 +201,10 @@ Hay CI de GitHub Actions para tipos, pruebas, compilación y navegador. La tipog
 ```text
 src/                 React: panel, clientes, contratos, facturas, catálogo y negocio
 shared/              Dominio, actividades oficiales, papel, plantillas y cálculo decimal
-server/              Express, SQLite, validación, sesiones y exportadores PDF/DOCX/XLSX
+server/              Express, SQLite, validación, cuentas/sesiones/roles y exportadores PDF/DOCX/XLSX
 public/              Iconos, manifiesto PWA y página de desconexión
-scripts/             Copia SQLite e iconos reproducibles
+scripts/             Copia SQLite, recuperación de acceso e iconos reproducibles
 tests/               Pruebas de dominio, HTTP, documentos y navegador
 ```
 
-API principal: `/api/health`, `/api/session`, `/api/login`, `/api/logout`, `/api/dashboard`, `/api/supplier`, `/api/clients`, `/api/contracts`, `/api/catalog`, `/api/invoices`, `/api/invoices/:id/sign`, `/api/invoices/:id/status`, `/api/invoices/:id/integrity`, `/api/invoices/:id/events` y `/api/invoices/:id/export/{pdf|docx|xlsx}?paper=A4&orientation=portrait`.
+API principal: `/api/health`, `/api/session`, `/api/login` (`username`, `password`), `/api/logout`, `/api/setup`, `/api/me/password`, `/api/users`, `/api/users/:id`, `/api/users/:id/sessions`, `/api/security-events`, `/api/dashboard`, `/api/supplier`, `/api/clients`, `/api/contracts`, `/api/catalog`, `/api/invoices`, `/api/invoices/:id/sign`, `/api/invoices/:id/status`, `/api/invoices/:id/integrity`, `/api/invoices/:id/events` y `/api/invoices/:id/export/{pdf|docx|xlsx}?paper=A4&orientation=portrait`.

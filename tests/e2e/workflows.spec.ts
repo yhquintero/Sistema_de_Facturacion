@@ -60,12 +60,32 @@ test('all views remain contained at mobile, tablet and desktop sizes', async ({ 
 
 
 test('protected production login, logout and private offline PWA fallback', async ({ page, context }) => {
-  await page.goto('http://127.0.0.1:3101'); await expect(page.getByRole('heading', { name: 'Tu negocio, solo para ti.' })).toBeVisible();
-  await page.getByLabel('Contraseña de acceso').fill('una-incorrecta'); await page.getByRole('button', { name: 'Entrar a mi espacio' }).click(); await expect(page.getByRole('alert')).toContainText('La contraseña no es correcta.');
-  await page.getByLabel('Contraseña de acceso').fill('clave-publica-solo-para-e2e'); await page.getByRole('button', { name: 'Entrar a mi espacio' }).click(); await expect(page.locator('h1')).toHaveText('Todo tu negocio, en orden.');
+  await page.goto('http://127.0.0.1:3101'); await expect(page.getByRole('heading', { name: 'Bienvenido de nuevo.' })).toBeVisible();
+  await page.getByLabel('Usuario').fill('admin'); await page.getByLabel('Contraseña').fill('una-incorrecta'); await page.getByRole('button', { name: 'Entrar a mi espacio' }).click(); await expect(page.getByRole('alert')).toContainText('Usuario o contraseña incorrectos.');
+  await page.getByLabel('Contraseña').fill('clave-publica-solo-para-e2e'); await page.getByRole('button', { name: 'Entrar a mi espacio' }).click(); await expect(page.locator('h1')).toHaveText('Todo tu negocio, en orden.');
   const cookie = (await context.cookies()).find(cookie => cookie.name === 'nexo_session'); expect(cookie?.httpOnly).toBe(true); expect(cookie?.sameSite).toBe('Strict');
   await page.evaluate(async () => { await navigator.serviceWorker.ready; if (!navigator.serviceWorker.controller) await new Promise<void>(resolve => navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), { once: true })); });
   await context.setOffline(true); await page.reload(); await expect(page.locator('h1')).toHaveText('Volvemos en cuanto te conectes.'); await expect(page.locator('body')).not.toContainText('Grupo Comercial');
   const cached = await page.evaluate(async () => { const values: string[] = []; for (const name of await caches.keys()) for (const request of await (await caches.open(name)).keys()) values.push(new URL(request.url).pathname); return values; }); expect(cached).toContain('/offline.html'); expect(cached.some(path => path.startsWith('/api/'))).toBe(false);
   await context.setOffline(false); await expect(page.locator('h1')).toHaveText('Todo tu negocio, en orden.'); await page.getByRole('button', { name: 'Cerrar sesión', exact: true }).click(); await expect(page.getByRole('button', { name: 'Entrar a mi espacio' })).toBeVisible(); await expect(page.locator('body')).not.toContainText('Grupo Comercial');
+});
+
+test('an administrator invites a read-only colleague who must choose a password and cannot modify anything', async ({ page }) => {
+  await page.goto('http://127.0.0.1:3101'); await page.getByLabel('Usuario').fill('admin'); await page.getByLabel('Contraseña').fill('clave-publica-solo-para-e2e'); await page.getByRole('button', { name: 'Entrar a mi espacio' }).click();
+  await page.getByRole('button', { name: 'Usuarios y acceso' }).click(); await expect(page.getByRole('heading', { name: 'Usuarios y acceso', level: 1 })).toBeVisible();
+  await page.getByRole('button', { name: 'Nuevo usuario' }).click(); const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Nombre y apellidos').fill('Lucía Consulta'); await dialog.getByRole('textbox', { name: 'Usuario' }).fill('lucia.consulta'); await dialog.getByText('Solo lectura', { exact: true }).click();
+  await dialog.getByLabel('Contraseña temporal').fill('temporal-de-lucia-e2e'); await dialog.getByRole('button', { name: 'Crear cuenta' }).click();
+  await expect(page.getByRole('dialog')).toContainText('temporal-de-lucia-e2e'); await page.getByRole('button', { name: 'Hecho' }).click();
+  await expect(page.locator('.users-table')).toContainText('@lucia.consulta'); await expect(page.locator('.users-table')).toContainText('Contraseña temporal');
+  await page.getByRole('button', { name: 'Cerrar sesión', exact: true }).click();
+  await page.getByLabel('Usuario').fill('lucia.consulta'); await page.getByLabel('Contraseña').fill('temporal-de-lucia-e2e'); await page.getByRole('button', { name: 'Entrar a mi espacio' }).click();
+  await expect(page.getByRole('heading', { name: 'Elige tu propia contraseña.' })).toBeVisible();
+  await page.getByLabel('Contraseña temporal').fill('temporal-de-lucia-e2e'); await page.getByRole('textbox', { name: 'Nueva contraseña', exact: true }).fill('mi-clave-definitiva-2026'); await page.getByLabel('Repite la nueva contraseña').fill('mi-clave-definitiva-2026'); await page.getByRole('button', { name: 'Guardar y continuar' }).click();
+  await expect(page.locator('h1')).toHaveText('Todo tu negocio, en orden.'); await expect(page.locator('.sidebar-profile')).toContainText('Solo lectura');
+  await expect(page.getByRole('button', { name: 'Nueva factura' })).toHaveCount(0); await expect(page.getByRole('button', { name: 'Usuarios y acceso' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Clientes', exact: true }).first().click(); await expect(page.getByRole('button', { name: 'Nuevo cliente' })).toHaveCount(0);
+  await page.locator('.sidebar-nav .nav-item', { hasText: 'Facturas' }).click(); await page.locator('.invoice-id').first().click(); await expect(page.getByRole('button', { name: 'Editar' })).toHaveCount(0); await expect(page.getByLabel('Actualizar estado de cobro')).toBeDisabled();
+  await page.goto('http://127.0.0.1:3101/#/invoices/new'); await expect(page.getByText('Tu rol no permite crear facturas')).toBeVisible();
+  await page.getByRole('button', { name: 'Cerrar sesión', exact: true }).click(); await expect(page.getByRole('button', { name: 'Entrar a mi espacio' })).toBeVisible();
 });
