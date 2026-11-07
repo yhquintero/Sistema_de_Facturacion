@@ -19,7 +19,23 @@ jobs:
       - run: npm ci
       - run: npm audit --audit-level=high
       - run: npm run typecheck
-      - run: npm test
+      - name: Unit/API tests with failure diagnostics
+        run: |
+          set +e
+          npm test 2>&1 | tee unit-tests.log
+          test_status=${PIPESTATUS[0]}
+          set -e
+          if [ "$test_status" -ne 0 ]; then
+            node --input-type=module -e '
+              import fs from "node:fs";
+              const log = fs.readFileSync("unit-tests.log", "utf8");
+              const failures = log.match(/^not ok\b[\s\S]*?(?=^# Subtest:|^\d+\.\.\d+|$(?![\s\S]))/gm);
+              const message = (failures?.join("\n\n") || log.slice(-14000)).slice(0, 14000);
+              const escaped = message.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
+              console.log(`::error title=Unit/API test failures::${escaped}`);
+            '
+          fi
+          exit "$test_status"
       - run: npm run build
       - run: npm sbom --sbom-format=cyclonedx --omit=dev > sbom.cdx.json
       - run: npx playwright install --with-deps chromium
@@ -56,17 +72,32 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $version = '2.11.9'
-          $tools = Join-Path $env:RUNNER_TEMP 'nexo-caddy'
-          New-Item -ItemType Directory $tools -Force | Out-Null
-          gh release download "v$version" --repo caddyserver/caddy --pattern "caddy_${version}_windows_amd64.zip" --pattern "caddy_${version}_checksums.txt" --dir $tools
-          if ($LASTEXITCODE -ne 0) { throw 'No se pudo descargar la distribución oficial fijada.' }
-          $archive = Join-Path $tools "caddy_${version}_windows_amd64.zip"
-          $line = Get-Content (Join-Path $tools "caddy_${version}_checksums.txt") | Where-Object { $_ -match "\s+caddy_${version}_windows_amd64\.zip$" }
-          if (@($line).Count -ne 1) { throw 'Checksum oficial no encontrado de forma inequívoca.' }
-          $expected = ($line -split '\s+')[0]
-          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected.ToLowerInvariant()) { throw 'Checksum de Caddy no coincide.' }
-          Expand-Archive -LiteralPath $archive -DestinationPath $tools
-          $tools | Out-File $env:GITHUB_PATH -Append -Encoding utf8
+          try {
+            $version = '2.11.9'
+            $tools = Join-Path $env:RUNNER_TEMP 'nexo-caddy'
+            New-Item -ItemType Directory $tools -Force | Out-Null
+            $download = @(gh release download "v$version" --repo caddyserver/caddy --pattern "caddy_${version}_windows_amd64.zip" --pattern "caddy_${version}_checksums.txt" --dir $tools 2>&1)
+            $downloadCode = $LASTEXITCODE
+            $download | Write-Output
+            if ($downloadCode -ne 0) { throw ('No se pudo descargar la distribución oficial fijada: ' + ($download -join "`n")) }
+            $archive = Join-Path $tools "caddy_${version}_windows_amd64.zip"
+            $line = Get-Content (Join-Path $tools "caddy_${version}_checksums.txt") | Where-Object { $_ -match "\s+caddy_${version}_windows_amd64\.zip$" }
+            if (@($line).Count -ne 1) { throw 'Checksum oficial no encontrado de forma inequívoca.' }
+            $expected = ($line -split '\s+')[0]
+            if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected.ToLowerInvariant()) { throw 'Checksum de Caddy no coincide.' }
+            Expand-Archive -LiteralPath $archive -DestinationPath $tools
+            $tools | Out-File $env:GITHUB_PATH -Append -Encoding utf8
+          } catch {
+            $message = (($_ | Out-String) + $_.ScriptStackTrace).Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
+            Write-Output "::error title=Caddy verification::$message"
+            throw
+          }
       - name: Parser real PowerShell, ACL, inicio/HTTPS/backup/reinicio/parada con fixtures
-        run: ./tests/powershell/Panel.Tests.ps1 -Integration
+        run: |
+          try {
+            & (Join-Path $env:GITHUB_WORKSPACE 'tests/powershell/Panel.Tests.ps1') -Integration
+          } catch {
+            $message = (($_ | Out-String) + $_.ScriptStackTrace).Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
+            Write-Output "::error title=Windows integration::$message"
+            throw
+          }
