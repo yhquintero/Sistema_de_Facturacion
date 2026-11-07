@@ -254,9 +254,127 @@ function Set-LanFirewall($Config, [switch] $Remove) {
     if (!(Get-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue)) { New-NetFirewallRule -Name $rule -DisplayName $rule -Direction Inbound -Action Allow -Profile Private -RemoteAddress LocalSubnet -Protocol TCP -LocalPort $Config.httpsPort -Program $Config.caddyPath | Out-Null }
     Write-Host 'Regla creada solo en perfil privado/subred local. El puerto del backend no se abre.'
 }
+# --- Dependencias npm -------------------------------------------------------
+# npm ci se ejecuta con reintentos porque una conexión inestable (ECONNRESET, tiempo agotado)
+# no debe obligar a empezar de cero: cada paquete descargado queda en la caché de npm, verificado
+# contra la huella «integrity» del package-lock.json, y --prefer-offline lo reutiliza en el siguiente intento.
+$script:NpmCiArguments = @('ci','--no-audit','--no-fund','--prefer-offline','--fetch-retries=5','--fetch-retry-factor=2','--fetch-retry-mintimeout=15000','--fetch-retry-maxtimeout=120000','--fetch-timeout=600000')
+function Invoke-NpmProcess([string[]] $Arguments) {
+    $name = if ($IsWindows) { 'npm.cmd' } else { 'npm' }
+    $command = Get-Command $name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -eq $command) { throw 'npm no está disponible en PATH. Reinstala Node.js desde nodejs.org (incluye npm), abre una terminal nueva y comprueba: npm --version' }
+    $npm = $command.Source; $code = 1
+    $output = [Collections.Generic.List[string]]::new(); $deprecated = 0
+    $previous = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    $PSNativeCommandUseErrorActionPreference = $false
+    try {
+        & $npm @Arguments 2>&1 | ForEach-Object {
+            $line = "$_"; $output.Add($line)
+            # Los avisos «deprecated» vienen de dependencias indirectas (exceljs, pdfkit): se resumen, no se ocultan.
+            if ($line -match '^npm warn deprecated ') { $deprecated++ } else { Write-Host $line }
+        }
+        $code = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $previous }
+    if ($deprecated) { Write-Host "($deprecated avisos «deprecated» de dependencias indirectas; no impiden la instalación. Detalle en docs/OPERACION-SEGURA.md.)" }
+    return [PSCustomObject]@{ ExitCode = $code; Output = ($output -join "`n") }
+}
+$script:NpmRunner = { param([string[]] $Arguments) Invoke-NpmProcess $Arguments }
+function Get-LockfileHash { return (Get-FileHash -LiteralPath (Join-Path $script:Repository 'package-lock.json') -Algorithm SHA256).Hash }
+function Get-DependencyMarker { return Join-Path $script:Repository 'node_modules/.nexo-lockfile.sha256' }
+function Test-DependenciesCurrent {
+    $marker = Get-DependencyMarker
+    if (!(Test-Path -LiteralPath (Join-Path $script:Repository 'node_modules/tsx/package.json')) -or !(Test-Path -LiteralPath $marker)) { return $false }
+    return ((Get-Content -LiteralPath $marker -Raw).Trim() -ceq (Get-LockfileHash))
+}
+function Get-NpmFailureKind([string] $Output) {
+    if ($Output -match 'EUSAGE|npm ci.{0,40}(in sync|sincron)|package-lock\.json.{0,80}(missing|not in sync|out of sync)|Invalid: lock file') { return 'Lockfile' }
+    if ($Output -match 'SELF_SIGNED_CERT|UNABLE_TO_(GET_ISSUER|VERIFY_LEAF)|CERT_[A-Z_]+|ERR_TLS_CERT') { return 'Certificate' }
+    if ($Output -match 'E407|Proxy Authentication Required') { return 'Proxy' }
+    if ($Output -match 'ECONNRESET|ETIMEDOUT|ESOCKETTIMEDOUT|ERR_SOCKET_TIMEOUT|ECONNREFUSED|ECONNABORTED|EAI_AGAIN|ENOTFOUND|ENETUNREACH|EHOSTUNREACH|ENETDOWN|EPIPE|socket hang up|network (read|timeout|request)|EINTEGRITY|code E5\d\d\b') { return 'Network' }
+    if ($Output -match '\b(EPERM|EBUSY|ENOTEMPTY|EACCES)\b') { return 'Locked' }
+    return 'Other'
+}
+function Get-NpmFailureMessage([string] $Kind, [int] $Attempts) {
+    $retry = 'pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -InstallDependencies'
+    switch ($Kind) {
+        'Network' { return @"
+No se pudieron descargar las dependencias: la conexión con el registro de npm se cortó o tardó demasiado ($Attempts intentos).
+Es un problema de red, no del proyecto. Lo ya descargado quedó en la caché de npm, verificado, y no se vuelve a descargar:
+  1. Vuelve a ejecutar el mismo comando; continuará desde lo que ya tienes:
+       $retry
+  2. Comprueba el acceso al registro:   npm ping
+  3. Si tu red usa un proxy:            npm config set proxy http://HOST:PUERTO
+                                        npm config set https-proxy http://HOST:PUERTO
+  4. Si el registro oficial no responde bien desde tu red, usa un espejo solo para esta instalación:
+       $retry -NpmRegistry https://registry.npmmirror.com/
+     npm comprueba cada paquete con la huella (integrity) de package-lock.json: un espejo no puede cambiar el código.
+  5. Sin conexión en este equipo: instala en otro PC con Internet y copia su caché de npm (ruta: npm config get cache)
+     a la misma ruta de este equipo. Después ejecuta el comando del paso 1.
+El registro completo de npm está en la ruta «A complete log of this run…» que aparece arriba.
+"@ }
+        'Locked' { return @"
+npm no pudo escribir en node_modules porque otro programa tiene archivos abiertos (EPERM/EBUSY).
+Cierra el editor o terminales que usen el proyecto y detén Nexo, luego vuelve a ejecutar:
+  pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action Stop
+  $retry
+Si persiste, excluye la carpeta del proyecto del análisis en tiempo real del antivirus o de la sincronización de OneDrive.
+"@ }
+        'Certificate' { return @"
+La conexión con el registro de npm presenta un certificado no reconocido (proxy o antivirus que inspecciona HTTPS).
+No desactives la verificación (strict-ssl=false). Pide la CA de tu red e indícala a npm:
+  npm config set cafile C:\ruta\ca-de-tu-red.pem
+Después vuelve a ejecutar:  $retry
+"@ }
+        'Proxy' { return @"
+El proxy de tu red exige autenticación (E407). Configúralo para npm y vuelve a ejecutar:
+  npm config set proxy http://USUARIO@HOST:PUERTO
+  npm config set https-proxy http://USUARIO@HOST:PUERTO
+  $retry
+"@ }
+        'Lockfile' { return @"
+package.json y package-lock.json no coinciden, así que npm ci se niega a instalar (es lo correcto).
+Actualiza el proyecto completo (git pull) para recibir ambos archivos juntos y vuelve a ejecutar:
+  $retry
+No uses npm install --force ni borres package-lock.json.
+"@ }
+        default { return "npm ci no pudo verificar e instalar el lockfile. Revisa el mensaje de npm de arriba y vuelve a ejecutar: $retry" }
+    }
+}
+function Install-Dependencies([string] $Registry, [int] $MaxAttempts = 4, [int[]] $DelaySeconds = @(10, 30, 60)) {
+    $arguments = @($script:NpmCiArguments)
+    if ($Registry) {
+        $uri = $null
+        if (![Uri]::TryCreate($Registry, [UriKind]::Absolute, [ref]$uri) -or $uri.Scheme -ne 'https' -or $uri.UserInfo -or $uri.Query) { throw 'NpmRegistry debe ser una dirección https:// sin usuario, contraseña ni parámetros.' }
+        $arguments += "--registry=$($uri.AbsoluteUri)"
+        Write-Host "Registro npm para esta instalación: $($uri.AbsoluteUri) (cada paquete se verifica con la huella del package-lock.json)."
+    }
+    if (Test-DependenciesCurrent) {
+        Write-Host 'Dependencias ya instaladas y al día con package-lock.json; no se descarga nada. (Para reinstalar, borra la carpeta node_modules.)'
+        return
+    }
+    $kind = 'Other'
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        Write-Host "Instalando dependencias con npm ci (intento $attempt de $MaxAttempts). Puede tardar varios minutos con una conexión lenta…"
+        $result = & $script:NpmRunner $arguments
+        if ($result.ExitCode -eq 0) {
+            [IO.File]::WriteAllText((Get-DependencyMarker), (Get-LockfileHash), [Text.UTF8Encoding]::new($false))
+            Write-Host 'Dependencias instaladas y verificadas.'
+            return
+        }
+        $kind = Get-NpmFailureKind $result.Output
+        if ($kind -notin @('Network','Locked') -or $attempt -eq $MaxAttempts) { break }
+        $wait = $DelaySeconds[[Math]::Min($attempt - 1, $DelaySeconds.Count - 1)]
+        $reason = if ($kind -eq 'Network') { 'La conexión con el registro de npm se cortó.' } else { 'Hay archivos de node_modules bloqueados por otro programa.' }
+        Write-Host "$reason Reintento en $wait s; lo ya descargado se conserva en la caché de npm." -ForegroundColor Yellow
+        if ($wait -gt 0) { Start-Sleep -Seconds $wait }
+    }
+    throw (Get-NpmFailureMessage $kind $attempt)
+}
+
 function Invoke-NexoControl {
     [CmdletBinding()]
-    param([string]$Action = 'Start',[string]$Mode = 'Local',[string]$Domain,[string]$LanAddress,[int]$HttpsPort = 8443,[int]$InternalPort = 3000,[string]$StateDirectory,[string]$ExportPath,[switch]$InstallDependencies,[switch]$NoBrowser,[switch]$NoBuild)
+    param([string]$Action = 'Start',[string]$Mode = 'Local',[string]$Domain,[string]$LanAddress,[int]$HttpsPort = 8443,[int]$InternalPort = 3000,[string]$StateDirectory,[string]$ExportPath,[switch]$InstallDependencies,[string]$NpmRegistry,[switch]$NoBrowser,[switch]$NoBuild)
+    if ($NpmRegistry -and !$InstallDependencies) { throw 'NpmRegistry solo se usa junto con -InstallDependencies.' }
     $script:State = if ($StateDirectory) { [IO.Path]::GetFullPath($StateDirectory) } else { Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'NexoFacturacion' }
     if ($script:State.Contains('"') -or $script:State -match '[\r\n]') { throw 'Directorio de estado no admitido.' }
     New-Item -ItemType Directory -Path $script:State -Force | Out-Null; Set-PrivatePermissions $script:State
@@ -271,9 +389,14 @@ function Invoke-NexoControl {
     if ($Action -in $nodeActions -or $InstallDependencies) { Get-NodePath | Out-Null }
     if ($InstallDependencies) {
         Push-Location $script:Repository
-        try { $npm = if ($IsWindows) { 'npm.cmd' } else { 'npm' }; & $npm ci; if ($LASTEXITCODE -ne 0) { throw 'npm ci no pudo verificar e instalar el lockfile.' } } finally { Pop-Location }
+        try { Install-Dependencies -Registry $NpmRegistry } finally { Pop-Location }
     }
-    if ($Action -in $nodeActions -and !(Test-Path (Join-Path $script:Repository 'node_modules/tsx/package.json'))) { throw 'Primero instala dependencias con -InstallDependencies. Se utiliza npm ci y el lockfile del proyecto.' }
+    if ($Action -in $nodeActions -and !(Test-Path (Join-Path $script:Repository 'node_modules/tsx/package.json'))) { throw @'
+Faltan las dependencias del proyecto (node_modules), o la última instalación no terminó.
+Instálalas primero (se usa npm ci con el package-lock.json del proyecto):
+  pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -InstallDependencies
+Si la descarga falla por la red, el mensaje de ese comando explica cómo reintentar, usar un proxy o un registro espejo.
+'@ }
     if ($Action -eq 'ExportService') {
         $arguments = @('--import','tsx','scripts/package-service.ts'); if ($ExportPath) { $arguments += @('--output',[IO.Path]::GetFullPath($ExportPath)) }; Invoke-Node $arguments; return
     }

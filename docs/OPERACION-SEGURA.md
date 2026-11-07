@@ -36,9 +36,39 @@ Si no utilizas winget, descarga la distribución de tu arquitectura desde las [p
 
 `added ... packages`, `found 0 vulnerabilities` y una salida correcta de `npm ci` indican que la instalación npm terminó; no significan que Caddy esté instalado. Los avisos `deprecated` corresponden a dependencias que requieren seguimiento, pero no son el error de Caddy. No los ocultes forzando la resolución de dependencias.
 
+El panel los resume en una línea (`N avisos «deprecated» de dependencias indirectas`) para que no se confundan con un error. Vienen de dependencias de `exceljs` (`inflight`, `glob`, `rimraf`, `fstream`, `lodash.isequal`) y de `pdfkit` (`jpeg-exif`, `crypto-js`). La salida completa sigue en el registro de npm.
+
 Si tu versión de npm muestra `allow-scripts` para esbuild, revisa los scripts pendientes con las opciones de aprobación indicadas por esa versión de npm antes de autorizarlos. No apruebes todos los scripts indiscriminadamente ni desactives globalmente las protecciones. Después comprueba `npm run build`; cualquier fallo de esbuild debe investigarse por separado del requisito Caddy.
 
 El panel comprueba Caddy antes de ejecutar `npm ci` cuando debe crear la primera configuración (`Start`, `Menu` o `Initialize`), para evitar reinstalaciones innecesarias si falta el proxy.
+
+### Errores de red durante `npm ci` (ECONNRESET, ETIMEDOUT, EAI_AGAIN)
+
+`npm error code ECONNRESET` / `network read ECONNRESET` significa que **la conexión con el registro de npm se cortó** a mitad de la descarga. Es un problema de red, no del proyecto, y no se arregla borrando `package-lock.json` ni con `--force`.
+
+`-InstallDependencies` ya lo tiene en cuenta:
+
+- Ejecuta `npm ci` hasta **4 veces**, con esperas de 10, 30 y 60 segundos, y cada descarga se reintenta 5 veces dentro de npm, con un límite de 10 minutos por paquete.
+- Usa `--prefer-offline`: cada paquete descargado queda en la caché de npm, verificado con la huella `integrity` del `package-lock.json`. **El intento siguiente continúa desde ahí** y no vuelve a descargar lo que ya tienes.
+- Si `node_modules` ya corresponde al `package-lock.json` actual, no descarga nada. Para forzar una reinstalación, borra la carpeta `node_modules`.
+- Solo reintenta los cortes de red y los archivos bloqueados (EPERM/EBUSY). Un `package-lock.json` desincronizado, un certificado no reconocido o un proxy que pide credenciales se explican y no se reintentan.
+
+Si aun así falla:
+
+1. **Vuelve a ejecutar el mismo comando.** Con una conexión intermitente, cada ejecución avanza un poco más:
+   ```powershell
+   pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -InstallDependencies
+   ```
+2. **Comprueba el acceso** al registro: `npm ping`.
+3. **Proxy:** `npm config set proxy http://HOST:PUERTO` y `npm config set https-proxy http://HOST:PUERTO`. Si aparece `SELF_SIGNED_CERT_IN_CHAIN`, configura la CA de tu red con `npm config set cafile C:\ruta\ca.pem`. **No** uses `strict-ssl=false`.
+4. **Registro espejo solo para esta instalación**, sin cambiar la configuración global de npm:
+   ```powershell
+   pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -InstallDependencies -NpmRegistry https://registry.npmmirror.com/
+   ```
+   Solo se aceptan direcciones `https://` sin credenciales. npm reescribe las descargas del `package-lock.json` hacia ese registro y **comprueba cada paquete con su huella SHA-512**: un espejo no puede cambiar el código sin que la instalación falle. Usa el espejo de tu organización si tienes uno.
+5. **Equipo sin Internet:** instala el proyecto en otro PC con conexión y copia su caché de npm (ruta: `npm config get cache`, normalmente `%LocalAppData%\npm-cache`) a la misma ruta del equipo sin conexión. Después ejecuta el paso 1: `npm ci` instala desde la caché verificada.
+
+Mientras falten las dependencias, `-Action Menu`, `Start` y las demás acciones se detienen con el aviso «Faltan las dependencias del proyecto». Primero completa `-InstallDependencies`.
 
 ### Conflicto npm entre Vite y el plugin React
 

@@ -33,6 +33,48 @@ try {
                 if (Test-Path (Join-Path $State "$action/control.json")) { throw 'No se debe crear configuración sin Caddy.' }
             }
         } finally { $env:PATH = $originalPath }
+        # npm ci: reintenta los cortes de red reutilizando la caché, no reintenta un lockfile desincronizado,
+        # no vuelve a descargar si nada cambió y explica qué hacer cuando la red no responde.
+        $originalRepository = $script:Repository; $originalRunner = $script:NpmRunner
+        $fakeRepository = Join-Path $State 'npm-repo'; New-Item -ItemType Directory -Path $fakeRepository | Out-Null
+        Set-Content -LiteralPath (Join-Path $fakeRepository 'package-lock.json') -Value '{"lockfileVersion":3}' -NoNewline
+        try {
+            $script:Repository = $fakeRepository
+            $script:NpmCalls = [Collections.Generic.List[object]]::new()
+            $script:NpmScript = @(@{ ExitCode = 1; Output = "npm error code ECONNRESET`nnpm error network read ECONNRESET" }, @{ ExitCode = 1; Output = 'npm error code ETIMEDOUT' }, @{ ExitCode = 0; Output = 'added 300 packages' })
+            $script:NpmRunner = {
+                param([string[]] $Arguments)
+                $script:NpmCalls.Add($Arguments)
+                $next = $script:NpmScript[[Math]::Min($script:NpmCalls.Count - 1, $script:NpmScript.Count - 1)]
+                if ($next.ExitCode -eq 0) { New-Item -ItemType Directory -Path (Join-Path $script:Repository 'node_modules/tsx') -Force | Out-Null; Set-Content -LiteralPath (Join-Path $script:Repository 'node_modules/tsx/package.json') -Value '{}' }
+                [PSCustomObject]$next
+            }
+            Install-Dependencies -DelaySeconds @(0)
+            if ($script:NpmCalls.Count -ne 3) { throw "Se esperaban 3 intentos de npm ci tras dos cortes de red: $($script:NpmCalls.Count)" }
+            $first = $script:NpmCalls[0]
+            if ($first[0] -ne 'ci' -or '--prefer-offline' -notin $first -or !($first -match '^--fetch-retries=')) { throw 'npm ci debe reutilizar la caché y reintentar cada descarga.' }
+            if (!(Test-DependenciesCurrent)) { throw 'Tras instalar, la marca del lockfile debe coincidir.' }
+            $script:NpmCalls.Clear(); Install-Dependencies -DelaySeconds @(0)
+            if ($script:NpmCalls.Count -ne 0) { throw 'Con dependencias al día no se debe volver a ejecutar npm ci.' }
+            foreach ($bad in @('http://registry.example/', 'https://usuario:clave@registry.example/', 'no-es-una-url')) {
+                $message = ''; try { Install-Dependencies -Registry $bad -DelaySeconds @(0) } catch { $message = $_.Exception.Message }
+                if ($message -notmatch 'https://') { throw "Registro no seguro aceptado: $bad" }
+            }
+            Set-Content -LiteralPath (Join-Path $fakeRepository 'package-lock.json') -Value '{"lockfileVersion":3,"cambio":1}' -NoNewline
+            $script:NpmCalls.Clear(); $script:NpmScript = @(@{ ExitCode = 1; Output = "npm error code EUSAGE`nnpm error npm ci can only install packages when your package.json and package-lock.json are in sync." })
+            $message = ''; try { Install-Dependencies -DelaySeconds @(0) } catch { $message = $_.Exception.Message }
+            if ($script:NpmCalls.Count -ne 1 -or $message -notmatch 'no coinciden') { throw "Un lockfile desincronizado no se reintenta y debe explicarse: $message" }
+            $script:NpmCalls.Clear(); $script:NpmScript = @(@{ ExitCode = 1; Output = "npm error code ECONNRESET`nnpm error network read ECONNRESET" })
+            $message = ''; try { Install-Dependencies -MaxAttempts 3 -DelaySeconds @(0) } catch { $message = $_.Exception.Message }
+            if ($script:NpmCalls.Count -ne 3 -or $message -notmatch 'npm ping' -or $message -notmatch '-NpmRegistry' -or $message -notmatch 'caché') { throw "Falta un diagnóstico de red accionable: $message" }
+            $script:NpmCalls.Clear(); $script:NpmScript = @(@{ ExitCode = 0; Output = 'added 300 packages' })
+            Install-Dependencies -Registry 'https://registry.npmmirror.com/' -DelaySeconds @(0)
+            if ('--registry=https://registry.npmmirror.com/' -notin $script:NpmCalls[0]) { throw 'El registro alternativo no se pasó a npm ci.' }
+            $kinds = @{ 'npm error code EPERM' = 'Locked'; 'npm error code SELF_SIGNED_CERT_IN_CHAIN' = 'Certificate'; 'npm error code E407' = 'Proxy'; 'npm error code EAI_AGAIN' = 'Network'; 'npm error code E503' = 'Network'; 'npm error code ERESOLVE' = 'Other' }
+            foreach ($entry in $kinds.GetEnumerator()) { if ((Get-NpmFailureKind $entry.Key) -ne $entry.Value) { throw "Clasificación npm incorrecta para '$($entry.Key)': $(Get-NpmFailureKind $entry.Key)" } }
+            $message = ''; try { Invoke-NexoControl -Action Status -NpmRegistry 'https://registry.npmmirror.com/' -StateDirectory (Join-Path $State 'registry-only') } catch { $message = $_.Exception.Message }
+            if ($message -notmatch 'junto con -InstallDependencies') { throw 'NpmRegistry sin -InstallDependencies debe rechazarse.' }
+        } finally { $script:Repository = $originalRepository; $script:NpmRunner = $originalRunner }
         Set-PrivatePermissions $State
         $file = Join-Path $State 'atomic.json'
         Write-PrivateJson $file @{ test = 1 }
@@ -47,7 +89,7 @@ try {
         if (Get-OwnedProcess $record) { throw 'La identidad de un PID reutilizado no fue rechazada.' }
         # Nunca llamar Stop-Control con el PID de este runner.
     } $state
-    Write-Host 'PASS: AST PowerShell, módulo, DACL privada, JSON atómico e identidad de proceso.'
+    Write-Host 'PASS: AST PowerShell, módulo, npm ci con reintentos y diagnóstico, DACL privada, JSON atómico e identidad de proceso.'
     if ($Integration) {
         # Hosted Windows has both setup-node and a preinstalled Node on PATH.
         $expectedNode = (Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source

@@ -4,7 +4,16 @@ Todos los cambios relevantes de Nexo se documentan aquí. El formato sigue [Keep
 
 ## [Sin publicar]
 
-_Nada todavía._
+### Corregido
+
+- **Instalación con conexión inestable:** `-InstallDependencies` ya no se detiene al primer `ECONNRESET`. Reintenta `npm ci` hasta 4 veces con esperas crecientes, reintenta cada descarga dentro de npm y reutiliza la caché verificada (`--prefer-offline`), de modo que cada intento continúa desde lo ya descargado.
+- Si las dependencias ya corresponden al `package-lock.json`, no se vuelve a descargar nada.
+- Mensajes de error con pasos concretos según la causa: red, proxy, certificado, archivos bloqueados o lockfile desincronizado. Los avisos `deprecated` de dependencias indirectas se resumen en una línea.
+- Aviso más claro en `-Action Menu` y `Start` cuando faltan las dependencias.
+
+### Añadido
+
+- `-NpmRegistry https://…` para usar un registro espejo solo durante la instalación. Cada paquete se sigue verificando con la huella del `package-lock.json`.
 
 ## [1.1.0] — 2026-11-06
 
