@@ -1,4 +1,4 @@
-FROM node:22.22.3-bookworm-slim AS builder
+FROM node:26.12.1-bookworm-slim AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -12,7 +12,7 @@ COPY scripts ./scripts
 COPY playwright.config.ts ./
 RUN npm run build
 
-FROM node:22.22.3-bookworm-slim AS runtime
+FROM node:26.12.1-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production PORT=3000 DATA_DIR=/app/data SEED_DEMO=false
 COPY package.json package-lock.json ./
