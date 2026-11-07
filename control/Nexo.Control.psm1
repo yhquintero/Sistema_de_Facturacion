@@ -33,7 +33,16 @@ function Get-NodePath {
 function Get-CaddyPath {
     $command = Get-Command caddy -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($null -eq $command) {
-        throw 'Caddy no está instalado o no está en PATH. En Windows ejecuta: winget install --id CaddyServer.Caddy --exact --source winget; después abre una terminal nueva y comprueba: caddy version. Alternativa: instala el binario oficial y añade su carpeta a PATH. Consulta docs/OPERACION-SEGURA.md. El panel no descarga ejecutables ni desactiva HTTPS automáticamente.'
+        throw @'
+Caddy no está instalado o no está en PATH.
+Instálalo consultando solo la fuente winget (evita el error msstore 0x8a15003b):
+  winget install --id CaddyServer.Caddy --exact --source winget
+Si la instalación falla, no continúes con el panel. Si termina correctamente, cierra la terminal, abre una nueva y comprueba:
+  caddy version
+Si winget indica que ya está instalado pero no se reconoce, revisa su carpeta y el PATH del usuario.
+Alternativa: instala el binario oficial y añade su carpeta a PATH. Consulta docs/OPERACION-SEGURA.md.
+El panel no descarga ejecutables ni desactiva HTTPS automáticamente.
+'@
     }
     return $command.Source
 }
@@ -255,6 +264,9 @@ function Invoke-NexoControl {
     try {
     if ($Action -ne 'Status') { try { $lock = [IO.File]::Open((Join-Path $script:State 'control.lock'),[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None) } catch { throw 'Otro panel tiene una operación activa. Termina esa operación o cierra su menú antes de continuar.' } }
     $script:ConfigFile = Join-Path $script:State 'control.json'; $script:ProcessFile = Join-Path $script:State 'processes.json'
+    $config = Get-Config
+    # Fallar antes de npm ci y antes de pedir secretos si falta el proxy en el primer inicio.
+    if ($Action -eq 'Initialize' -or (!$config -and $Action -in @('Start','Menu'))) { Get-CaddyPath | Out-Null }
     $nodeActions = @('Start','Menu','Initialize','Restart','Backup','ExportService')
     if ($Action -in $nodeActions -or $InstallDependencies) { Get-NodePath | Out-Null }
     if ($InstallDependencies) {
@@ -265,7 +277,6 @@ function Invoke-NexoControl {
     if ($Action -eq 'ExportService') {
         $arguments = @('--import','tsx','scripts/package-service.ts'); if ($ExportPath) { $arguments += @('--output',[IO.Path]::GetFullPath($ExportPath)) }; Invoke-Node $arguments; return
     }
-    $config = Get-Config
     if ($Action -eq 'Initialize' -or (!$config -and $Action -in @('Start','Menu'))) { $config = Initialize-Control $Mode $Domain $LanAddress $HttpsPort $InternalPort }
     if (!$config -and $Action -ne 'Stop') { throw 'Primero configura el panel con Initialize o Start.' }
     switch ($Action) {
