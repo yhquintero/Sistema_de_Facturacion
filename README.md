@@ -169,7 +169,13 @@ pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action Backup
 pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action ExportService
 # Cambiar el puerto de una instalación existente (por defecto 8450; NovaGest usa 8443):
 pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action SetPort -HttpsPort 8450
+# Quitar el «No seguro» (una vez) y contraseña temporal de admin si no recuerdas la frase:
+pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action TrustLocalCA
+pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action ResetPassword
 ```
+
+> [!TIP]
+> **Primer acceso:** abre `https://localhost:8450` y entra con el usuario **`admin`** y la frase que escribiste al inicializar. La guía [primer acceso paso a paso](docs/PRIMER-ACCESO.md) explica cómo confiar en el certificado, qué hacer si el navegador dice «No seguro» y cómo obtener una contraseña temporal.
 
 - El modo elegido se conserva tras inicializar.
 - El panel pide la frase del administrador **sin mostrarla**, guarda su hash scrypt y una clave independiente para las copias en un estado privado, y valida sus propios procesos y el HTTPS.
@@ -209,7 +215,7 @@ Cada persona entra con **su usuario y su contraseña**. En la primera inicializa
 - Ni siquiera un administrador puede reescribir una factura emitida o firmada.
 - Todos los roles pertenecen al **mismo negocio**; no son cuentas aisladas para clientes.
 
-**Recuperación local:** en el servidor, con `DATA_DIR` apuntando a la base correcta:
+**Recuperación local:** con el panel de Windows, la opción **[6]** del menú o `-Action ResetPassword [-User usuario]` usa la base de esa instalación. Sin el panel, en el servidor y con `DATA_DIR` apuntando a la base correcta:
 
 ```bash
 npm run user:reset-password -- <usuario> [--admin | --reset-2fa]
@@ -279,6 +285,7 @@ No se guardan datos ni secretos en Git. Antes de mover una base con WAL, consult
 
 | Documento | Contenido |
 |---|---|
+| [Primer acceso paso a paso](docs/PRIMER-ACCESO.md) | Entrar por primera vez en Windows: certificado, «No seguro», usuario `admin` y contraseña temporal. |
 | [Operación segura](docs/OPERACION-SEGURA.md) | Inicio HTTPS, confianza en red local y móvil, Internet, panel, copias, recuperación y Docker. |
 | [Alcance fiscal Cuba / ONAT](docs/ONAT-CUBA.md) | TCP 2026, auxiliares y bloqueos de la DJ-08 y otros informes. |
 | [Auditoría de seguridad](docs/AUDITORIA-SEGURIDAD.md) | Marco jurídico y técnico, estándares, capas, hallazgos, plan y balance. |

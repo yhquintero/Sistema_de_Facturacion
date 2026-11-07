@@ -102,7 +102,14 @@ La frase inicial del panel crea la cuenta **`admin`** solo si no hay cuentas. Ca
 
 Las cuentas y hashes existentes de PR #2 se preservan. Los hashes antiguos scrypt/NFKC se verifican sin cambiar su contraseña; las nuevas usan scrypt reforzado. El hash de arranque sirve **solo para la primera cuenta**, no es una contraseña maestra ni un mecanismo de recuperación. Node puede arrancar sin esa variable cuando ya hay cuentas persistidas; el panel conserva su configuración/archivos privados. La compatibilidad de bootstrap en claro no es la opción recomendada.
 
-Si pierdes acceso, usa consola local autorizada, no chat ni una URL. Detén el servicio para una recuperación controlada, conserva evidencia y confirma **la ruta de la base existente**. Para el estado predeterminado del panel:
+Si pierdes acceso, usa consola local autorizada, no chat ni una URL. Con el panel es directo: opción **[6] Contraseña temporal de admin** del menú, o fuera del menú:
+
+```powershell
+pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action ResetPassword              # admin (lo reactiva o lo crea)
+pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action ResetPassword -User maria  # otra cuenta existente
+```
+
+Usa la base y el entorno de esa instalación (también con `-StateDirectory`), sin variables a mano. Puede ejecutarse con el servicio en marcha. La guía [primer acceso](PRIMER-ACCESO.md) lo explica paso a paso. Sin el panel, o para `--reset-2fa`, detén el servicio para una recuperación controlada, conserva evidencia y confirma **la ruta de la base existente**. Para el estado predeterminado del panel:
 
 ```powershell
 $config = Get-Content (Join-Path $env:LOCALAPPDATA 'NexoFacturacion\control.json') -Raw | ConvertFrom-Json
@@ -153,14 +160,14 @@ pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action Menu
 
 ## 3. Confianza HTTPS local/LAN: no basta el candado configurado
 
-El panel genera una CA local con Caddy (`skip_install_trust`). Informa la ruta a `share\Nexo-CA-PUBLICA.crt` y su huella SHA-256. El probe Node confía explícitamente en esa CA **solo para verificar**, sin cambiar el almacén del equipo.
+El panel genera una CA local con Caddy (`skip_install_trust`). Informa la ruta a `share\Nexo-CA-PUBLICA.crt` y la huella SHA-256 del certificado raíz, la misma que muestra el visor de certificados del navegador. `TrustLocalCA` muestra además la SHA-1, que es la «Huella digital» del aviso de Windows. El probe Node confía explícitamente en esa CA **solo para verificar**, sin cambiar el almacén del equipo.
 
 1. Contrasta la huella por un canal independiente/confiable.
 2. En Windows, si apruebas esa CA propia:
    ```powershell
    pwsh -NoProfile -File .\control\Panel-Sistema.ps1 -Action TrustLocalCA
    ```
-   Pide escribir `CONFIAR` y modifica solo `Cert:\CurrentUser\Root`. Firefox u otros navegadores pueden requerir su propio procedimiento.
+   También está en la opción **[7]** del menú. Pide escribir `CONFIAR`. Windows muestra un aviso con la huella digital: pulsa «Sí» si coincide. Solo modifica `Cert:\CurrentUser\Root` y comprueba que el certificado quedó instalado. **Después reinicia el navegador por completo** (`edge://restart` o `chrome://restart`): si no, seguirá mostrando «No seguro». Firefox usa su propio almacén (ver [primer acceso](PRIMER-ACCESO.md#paso-2-confiar-en-el-certificado-de-nexo-quita-el-no-seguro)).
 3. En cada móvil, instala **solo el certificado raíz público** y habilita confianza mediante el procedimiento del sistema/navegador. En iOS puede requerir activar confianza plena en Ajustes; en Android la aceptación de CA de usuario depende del cliente y política del dispositivo. Verifica el candado y nombre/IP; **no ignores advertencias de certificado**.
 4. Nunca compartas `caddy-storage`, `root.key`, `intermediate.key`, claves TLS, `backup.key`, hashes de acceso ni el directorio de estado completo.
 5. Desde el móvil abre `https://IP-DEL-SERVIDOR:8450` (o el puerto que muestre el panel), no `localhost`. Usa la misma Wi-Fi, reserva DHCP/IP fija y comprueba que la red no aísle clientes.
