@@ -1,0 +1,27 @@
+# Finales de línea
+# ----------------
+# Normaliza el texto en el repositorio. Los scripts de shell deben conservar LF
+# (con CRLF fallan en Linux/CI con «bad interpreter»).
+* text=auto
+*.sh text eol=lf
+Dockerfile text eol=lf
+# El panel PowerShell se guarda normalizado (LF en el repositorio); Git aplica el final
+# de línea local al extraerlo y PowerShell acepta ambos.
+*.ps1 text
+*.psm1 text
+*.psd1 text
+
+# Binarios (sin diffs de texto)
+*.png binary
+*.jpg binary
+*.ico binary
+*.ttf binary
+*.woff2 binary
+
+# Estadísticas de lenguajes de GitHub (Linguist)
+# ----------------------------------------------
+# Las fuentes empaquetadas para el PDF y el sitio estático de GitHub Pages no son
+# código del producto: no deben contar en la barra de lenguajes del repositorio.
+server/assets/fonts/** linguist-vendored
+docs/index.html linguist-documentation
+docs/assets/** linguist-generated -diff

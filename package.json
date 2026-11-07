@@ -1,9 +1,19 @@
 {
   "name": "sistema-de-facturacion",
-  "version": "1.0.0",
+  "version": "1.1.0",
+  "description": "Sistema de Facturación Profesional Multiplataforma (Web, Servidor, Móvil) con Desglose Técnico de Desarrollo e Instalación y Exportación Internacional (.docx, .xlsx, .pdf)",
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "yhquintero (https://github.com/yhquintero)",
+  "homepage": "https://yhquintero.github.io/Sistema_de_Facturacion/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yhquintero/Sistema_de_Facturacion.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yhquintero/Sistema_de_Facturacion/issues"
+  },
   "private": true,
   "type": "module",
-  "description": "Sistema de Facturación Profesional Multiplataforma (Web, Servidor, Móvil) con Desglose Técnico de Desarrollo e Instalación y Exportación Internacional (.docx, .xlsx, .pdf)",
   "scripts": {
     "dev": "node --env-file-if-exists=.env --import tsx server/index.ts",
     "build": "tsc --noEmit && vite build",
@@ -17,7 +27,8 @@
     "backup:key": "node --import tsx scripts/generate-backup-key.ts",
     "backup:decrypt": "node --env-file-if-exists=.env --import tsx scripts/restore.ts",
     "probe:https": "node --import tsx scripts/probe-https.ts",
-    "package:service": "node --import tsx scripts/package-service.ts"
+    "package:service": "node --import tsx scripts/package-service.ts",
+    "docs:capturas": "node scripts/readme-screenshots.mjs"
   },
   "dependencies": {
     "decimal.js": "^10.6.0",

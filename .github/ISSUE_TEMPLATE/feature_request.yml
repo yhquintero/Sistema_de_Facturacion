@@ -1,0 +1,54 @@
+name: "✨ Proponer una mejora"
+description: "Sugiere una función nueva o un cambio en una existente."
+title: "[Mejora] "
+labels: ["mejora"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Cuéntanos qué necesitas en tu día a día de facturación. Las mejores propuestas describen **el problema**
+        antes que la solución.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Qué problema resuelve
+      placeholder: "Cada fin de mes tengo que… y me cuesta porque…"
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Propuesta
+      description: Cómo te gustaría que funcionara. Puedes adjuntar bocetos o capturas con datos ficticios.
+    validations:
+      required: true
+  - type: dropdown
+    id: role
+    attributes:
+      label: Para qué rol
+      multiple: true
+      options:
+        - Administrador
+        - Gestor
+        - Técnico
+        - Solo lectura
+        - Cliente Final (firma)
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Importancia para ti
+      options:
+        - Me bloquea el trabajo
+        - Me ahorraría bastante tiempo
+        - Sería un buen detalle
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativas que has probado
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Alcance
+      options:
+        - label: "Entiendo que Nexo no sustituye la declaración oficial ante la ONAT ni el asesoramiento fiscal."
+          required: true
